@@ -1,0 +1,36 @@
+# Ditado - Voice Dictation Tool
+# Python 3.11+
+
+# Audio capture
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# OpenAI APIs (Whisper + GPT)
+openai>=1.0.0
+
+# Global hotkey detection
+pynput>=1.7.6
+
+# Text injection / keyboard simulation
+pyautogui>=0.9.54
+
+# System tray
+pystray>=0.19.5
+Pillow>=10.0.0
+
+# Modern UI
+customtkinter>=5.2.0
+
+# Clipboard support
+pyperclip>=1.8.2
+
+# Secure credential storage
+keyring>=24.0.0
+
+# System audio control (Windows)
+pycaw>=20230407
+comtypes>=1.2.0
+pywin32>=306
+
+# Packaging
+pyinstaller>=6.0.0
