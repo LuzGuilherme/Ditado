@@ -142,6 +142,7 @@ class DitadoApp:
 
         # Ensure system audio is restored on exit
         self._muter.force_unmute()
+        self._muter.cleanup()
 
         if self._root:
             try:
@@ -153,6 +154,7 @@ class DitadoApp:
         """Emergency cleanup on unexpected exit."""
         try:
             self._muter.force_unmute()
+            self._muter.cleanup()
         except Exception:
             pass
 

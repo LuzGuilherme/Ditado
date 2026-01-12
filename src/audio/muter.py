@@ -32,15 +32,36 @@ class AudioMuter:
         self._lock = threading.Lock()
         self._was_muted: Optional[bool] = None  # Original mute state
         self._is_muted_by_us = False  # Track if WE muted the audio
+        self._com_initialized = False  # Track COM initialization state
+        self._volume_interface = None  # Cached volume interface
+
+    def _init_com(self) -> bool:
+        """Initialize COM for this thread if not already done."""
+        if not PYCAW_AVAILABLE:
+            return False
+
+        if not self._com_initialized:
+            try:
+                pythoncom.CoInitialize()
+                self._com_initialized = True
+            except Exception as e:
+                logger.error(f"Failed to initialize COM: {e}")
+                return False
+        return True
 
     def _get_volume_interface(self):
-        """Get the Windows audio endpoint volume interface."""
+        """Get the Windows audio endpoint volume interface (cached)."""
         if not PYCAW_AVAILABLE:
             return None
 
+        # Return cached interface if available
+        if self._volume_interface is not None:
+            return self._volume_interface
+
         try:
-            # Initialize COM for this thread (required when called from non-main threads)
-            pythoncom.CoInitialize()
+            # Initialize COM for this thread
+            if not self._init_com():
+                return None
 
             # Create the device enumerator
             enumerator = CoCreateInstance(
@@ -61,10 +82,23 @@ class AudioMuter:
                 CLSCTX_ALL,
                 None
             )
-            return cast(interface, POINTER(IAudioEndpointVolume))
+            self._volume_interface = cast(interface, POINTER(IAudioEndpointVolume))
+            return self._volume_interface
         except Exception as e:
             logger.error(f"Failed to get audio interface: {e}")
             return None
+
+    def cleanup(self) -> None:
+        """Clean up COM resources. Call this when done with the muter."""
+        with self._lock:
+            self._volume_interface = None
+            if self._com_initialized and PYCAW_AVAILABLE:
+                try:
+                    pythoncom.CoUninitialize()
+                    self._com_initialized = False
+                    logger.debug("COM uninitialized")
+                except Exception as e:
+                    logger.error(f"Failed to uninitialize COM: {e}")
 
     def mute(self) -> bool:
         """Mute system audio, storing the original state.
