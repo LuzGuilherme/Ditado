@@ -65,13 +65,15 @@ class RecordingOverlay:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop the overlay."""
+        """Stop the overlay and destroy its Tkinter instance."""
         self._running = False
         if self._root:
             try:
                 self._root.quit()
+                self._root.destroy()
             except Exception:
                 pass
+            self._root = None
 
     def show(self) -> None:
         """Show the overlay."""
@@ -98,6 +100,14 @@ class RecordingOverlay:
         self._root.attributes("-topmost", True)
         self._root.attributes("-alpha", 0.95)
         self._root.withdraw()
+
+        # Set window icon (300ms delay to override CustomTkinter's default at 200ms)
+        try:
+            from .tray import get_asset_path
+            icon_path = get_asset_path("icon.ico")
+            self._root.after(300, lambda: self._root.iconbitmap(icon_path))
+        except Exception:
+            pass
 
         # Transparent window background
         self._root.configure(bg='black')

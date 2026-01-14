@@ -1,15 +1,29 @@
 """Unified Dashboard for Ditado - Modern Light Theme Design."""
 
+import os
+import sys
 import customtkinter as ctk
 import threading
 import webbrowser
 from typing import Callable, Optional, List
+from PIL import Image
 from .. import __version__
 from ..config.settings import Settings
 from ..config.history import TranscriptionHistory, TranscriptionHistoryEntry, format_relative_time
 from ..transcription.whisper import SUPPORTED_LANGUAGES
 from ..input.hotkey import KeyCombinationCaptureDialog, format_hotkey_display
 from ..audio.recorder import list_audio_devices
+
+
+def get_asset_path(filename: str) -> str:
+    """Get the path to an asset file, works for both dev and bundled exe."""
+    if getattr(sys, 'frozen', False):
+        # Running as bundled exe
+        base_path = sys._MEIPASS
+    else:
+        # Running in development
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_path, "assets", filename)
 
 
 # ============================================
@@ -406,32 +420,6 @@ class HistoryItem(ctk.CTkFrame):
             pass  # Silently fail if clipboard not available
 
 
-class PillTabButton(ctk.CTkButton):
-    """Pill-shaped tab button."""
-
-    def __init__(self, parent, text: str, command=None, is_active: bool = False, **kwargs):
-        super().__init__(
-            parent,
-            text=text,
-            command=command,
-            fg_color=ACCENT_LIME if is_active else "transparent",
-            hover_color=ACCENT_LIME_LIGHT if not is_active else ACCENT_LIME_DARK,
-            text_color=TEXT_DARK,
-            corner_radius=20,
-            height=36,
-            font=ctk.CTkFont(size=13),
-            **kwargs
-        )
-        self._is_active = is_active
-
-    def set_active(self, active: bool) -> None:
-        self._is_active = active
-        self.configure(
-            fg_color=ACCENT_LIME if active else "transparent",
-            hover_color=ACCENT_LIME_LIGHT if not active else ACCENT_LIME_DARK,
-        )
-
-
 class HomeWindow:
     """Unified dashboard window with modern light theme design."""
 
@@ -517,6 +505,13 @@ class HomeWindow:
         self._window.configure(fg_color=BG_MAIN)
         self._window.protocol("WM_DELETE_WINDOW", self._handle_close)
 
+        # Set window icon
+        try:
+            icon_path = get_asset_path("icon.ico")
+            self._window.after(300, lambda: self._window.iconbitmap(icon_path))
+        except Exception:
+            pass
+
         # Main container with grid
         main = ctk.CTkFrame(self._window, fg_color="transparent")
         main.pack(fill="both", expand=True)
@@ -540,18 +535,35 @@ class HomeWindow:
         sidebar.grid_propagate(False)
 
         # Logo icon at top
-        logo_btn = ctk.CTkButton(
-            sidebar,
-            text="+",
-            width=40,
-            height=40,
-            corner_radius=20,
-            fg_color="#3A3A3A",
-            hover_color="#4A4A4A",
-            text_color=TEXT_LIGHT,
-            font=ctk.CTkFont(size=20, weight="bold"),
-            command=lambda: self._switch_tab("dashboard"),
-        )
+        try:
+            logo_path = get_asset_path("logo.png")
+            logo_image = Image.open(logo_path)
+            ctk_logo = ctk.CTkImage(light_image=logo_image, dark_image=logo_image, size=(36, 36))
+            logo_btn = ctk.CTkButton(
+                sidebar,
+                text="",
+                image=ctk_logo,
+                width=40,
+                height=40,
+                corner_radius=20,
+                fg_color="transparent",
+                hover_color="#3A3A3A",
+                command=lambda: self._switch_tab("dashboard"),
+            )
+        except Exception:
+            # Fallback to text if logo not found
+            logo_btn = ctk.CTkButton(
+                sidebar,
+                text="+",
+                width=40,
+                height=40,
+                corner_radius=20,
+                fg_color="#3A3A3A",
+                hover_color="#4A4A4A",
+                text_color=TEXT_LIGHT,
+                font=ctk.CTkFont(size=20, weight="bold"),
+                command=lambda: self._switch_tab("dashboard"),
+            )
         logo_btn.pack(pady=(20, 30))
 
         # Navigation icons
@@ -641,10 +653,6 @@ class HomeWindow:
             else:
                 btn.configure(fg_color="transparent", text_color=ICON_INACTIVE)
 
-        # Update pill tab button styles (sync with sidebar)
-        for name, btn in self._tab_buttons.items():
-            btn.set_active(name == tab_name)
-
         self._show_tab(tab_name)
 
     def _show_tab(self, tab_name: str) -> None:
@@ -719,23 +727,6 @@ class HomeWindow:
             font=ctk.CTkFont(size=18),
             command=lambda: self._switch_tab("settings"),
         ).pack(side="left", padx=(0, 8))
-
-        # Pill tabs
-        tabs_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        tabs_frame.pack(fill="x", pady=(0, 25))
-
-        tab_names = ["Dashboard", "Settings", "API", "Analytics"]
-        tab_keys = ["dashboard", "settings", "api", "analytics"]
-
-        for name, key in zip(tab_names, tab_keys):
-            btn = PillTabButton(
-                tabs_frame,
-                text=name,
-                is_active=(key == "dashboard"),
-                command=lambda k=key: self._switch_tab(k),
-            )
-            btn.pack(side="left", padx=(0, 8))
-            self._tab_buttons[key] = btn
 
         # Check if this is a first-time user (no API key and no transcriptions)
         is_first_time_user = (

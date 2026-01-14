@@ -1,11 +1,24 @@
 """Settings window for Ditado."""
 
+import os
+import sys
 import customtkinter as ctk
 from typing import Callable, Optional
 from ..config.settings import Settings
 from ..transcription.whisper import SUPPORTED_LANGUAGES
 from ..input.hotkey import KeyCaptureDialog
 from ..audio.recorder import list_audio_devices, get_default_input_device
+
+
+def get_asset_path(filename: str) -> str:
+    """Get the path to an asset file, works for both dev and bundled exe."""
+    if getattr(sys, 'frozen', False):
+        # Running as bundled exe
+        base_path = sys._MEIPASS
+    else:
+        # Running in development
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_path, "assets", filename)
 
 
 class SettingsWindow:
@@ -40,6 +53,13 @@ class SettingsWindow:
         self._window.title("Ditado Settings")
         self._window.geometry("500x750")
         self._window.resizable(False, False)
+
+        # Set window icon (300ms delay to override CustomTkinter's default at 200ms)
+        try:
+            icon_path = get_asset_path("icon.ico")
+            self._window.after(300, lambda: self._window.iconbitmap(icon_path))
+        except Exception:
+            pass
 
         # Create main container with padding
         container = ctk.CTkFrame(self._window, fg_color="transparent")

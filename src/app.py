@@ -1,6 +1,8 @@
 """Main application class for Ditado."""
 
 import atexit
+import os
+import sys
 import threading
 import time
 from typing import Optional
@@ -16,7 +18,7 @@ from .transcription.enhancer import TextEnhancer, EnhancementError
 from .input.hotkey import HotkeyListener
 from .input.typer import TextTyper
 from .ui.overlay import RecordingOverlay
-from .ui.tray import SystemTray
+from .ui.tray import SystemTray, get_asset_path
 from .ui.home import HomeWindow
 from .utils.logger import get_logger, setup_logging
 
@@ -99,6 +101,12 @@ class DitadoApp:
         # Initialize logging
         setup_logging()
 
+        # Set Windows AppUserModelID for proper taskbar icon
+        # Must be called BEFORE any windows are created
+        if sys.platform == 'win32':
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('Ditado.VoiceDictation.1.0')
+
         self._running = True
 
         # Sync autostart setting with Windows registry
@@ -122,6 +130,13 @@ class DitadoApp:
         self._root.geometry("1x1+0+0")  # Tiny window
         self._root.withdraw()  # Hide the main window
 
+        # Set window icon for taskbar (300ms delay to override CustomTkinter's default at 200ms)
+        try:
+            icon_path = get_asset_path("icon.ico")
+            self._root.after(300, lambda: self._root.iconbitmap(icon_path))
+        except Exception:
+            pass
+
         # Always show home page on startup (like Wispr Flow)
         self._root.after(100, self._show_home)
 
@@ -134,21 +149,62 @@ class DitadoApp:
             self.stop()
 
     def stop(self) -> None:
-        """Stop the application."""
+        """Stop the application and fully terminate the process."""
+        if not self._running:
+            return
+
         self._running = False
-        self._hotkey.stop()
-        self._overlay.stop()
-        self._tray.stop()
+        logger.info("Shutting down Ditado...")
+
+        # Stop hotkey listener first (prevents new recordings)
+        try:
+            self._hotkey.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping hotkey: {e}")
+
+        # Stop overlay (has its own Tkinter instance)
+        try:
+            self._overlay.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping overlay: {e}")
+
+        # Stop system tray
+        try:
+            self._tray.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping tray: {e}")
 
         # Ensure system audio is restored on exit
-        self._muter.force_unmute()
-        self._muter.cleanup()
+        try:
+            self._muter.force_unmute()
+            self._muter.cleanup()
+        except Exception as e:
+            logger.debug(f"Error cleaning up muter: {e}")
 
+        # Close home window if open
+        if self._home_window:
+            try:
+                self._home_window.close()
+            except Exception as e:
+                logger.debug(f"Error closing home window: {e}")
+            self._home_window = None
+
+        # Destroy Tkinter root window
         if self._root:
             try:
+                # Schedule destroy on main thread
                 self._root.quit()
-            except Exception:
-                pass
+                self._root.destroy()
+            except Exception as e:
+                logger.debug(f"Error destroying root window: {e}")
+            self._root = None
+
+        logger.info("Ditado shutdown complete")
+
+        # Force terminate the process to ensure all threads exit
+        # Use os._exit for immediate termination (skips cleanup handlers)
+        # This is necessary because daemon threads may still be running
+        os._exit(0)
 
     def _cleanup_on_exit(self) -> None:
         """Emergency cleanup on unexpected exit."""
@@ -220,8 +276,13 @@ class DitadoApp:
         print(f"Settings saved. Hotkey: {settings.hotkey}")
 
     def _exit(self) -> None:
-        """Exit the application."""
-        self.stop()
+        """Exit the application - schedule on main thread."""
+        if self._root:
+            # Schedule stop on main Tkinter thread to avoid threading issues
+            # (this is called from pystray's thread)
+            self._root.after(0, self.stop)
+        else:
+            self.stop()
 
     def _show_usage(self) -> None:
         """Show usage statistics notification."""

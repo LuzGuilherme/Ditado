@@ -37,3 +37,11 @@ logs/
 
 # Installer output
 installer/*.exe
+
+# Temp files
+tmpclaude-*
+nul
+=306
+
+# Claude Code
+.claude/

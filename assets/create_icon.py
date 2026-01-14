@@ -1,56 +1,41 @@
-"""Create a simple icon for Ditado."""
+"""Create icon files for Ditado from the logo PNG."""
 
-from PIL import Image, ImageDraw
+import os
+from PIL import Image
+
 
 def create_icon():
-    """Create a microphone icon."""
-    size = 256
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
+    """Create ICO file from logo PNG with transparency."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(script_dir, "logo.png")
+    ico_path = os.path.join(script_dir, "icon.ico")
 
-    # Background circle
-    padding = 10
-    draw.ellipse(
-        [padding, padding, size - padding, size - padding],
-        fill="#E53935"
+    # Load the logo (transparent PNG)
+    logo = Image.open(logo_path)
+
+    # Convert to RGBA for ICO compatibility
+    if logo.mode != "RGBA":
+        logo = logo.convert("RGBA")
+
+    # Create multiple sizes for ICO (Windows requires these specific sizes)
+    sizes = [256, 128, 64, 48, 32, 16]
+    images = []
+
+    for size in sizes:
+        # Resize the logo preserving transparency
+        resized = logo.resize((size, size), Image.Resampling.LANCZOS)
+        images.append(resized)
+
+    # Save as ICO with proper multi-size support
+    images[0].save(
+        ico_path,
+        format="ICO",
+        append_images=images[1:],
+        sizes=[(img.width, img.height) for img in images]
     )
+    print(f"Icon created: {ico_path}")
+    print(f"Sizes embedded: {[img.size for img in images]}")
 
-    # Microphone
-    center_x = size // 2
-    center_y = size // 2
-    mic_color = "#FFFFFF"
-
-    # Mic head (oval)
-    head_width = 40
-    head_height = 60
-    draw.ellipse(
-        [center_x - head_width, center_y - head_height - 10,
-         center_x + head_width, center_y + 10],
-        fill=mic_color
-    )
-
-    # Mic stand arc
-    arc_width = 50
-    draw.arc(
-        [center_x - arc_width, center_y - 20,
-         center_x + arc_width, center_y + 60],
-        start=0, end=180,
-        fill=mic_color, width=8
-    )
-
-    # Mic base
-    draw.line(
-        [center_x, center_y + 50, center_x, center_y + 80],
-        fill=mic_color, width=8
-    )
-    draw.line(
-        [center_x - 30, center_y + 80, center_x + 30, center_y + 80],
-        fill=mic_color, width=8
-    )
-
-    # Save as ICO
-    image.save("icon.ico", format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (32, 32), (16, 16)])
-    print("Icon created: icon.ico")
 
 if __name__ == "__main__":
     create_icon()

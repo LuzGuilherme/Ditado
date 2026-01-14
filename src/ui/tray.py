@@ -1,9 +1,22 @@
 """System tray integration for Ditado."""
 
+import os
+import sys
 import threading
 from typing import Callable, Optional
-from PIL import Image, ImageDraw
+from PIL import Image
 import pystray
+
+
+def get_asset_path(filename: str) -> str:
+    """Get the path to an asset file, works for both dev and bundled exe."""
+    if getattr(sys, 'frozen', False):
+        # Running as bundled exe
+        base_path = sys._MEIPASS
+    else:
+        # Running in development
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_path, "assets", filename)
 
 
 class SystemTray:
@@ -86,50 +99,33 @@ class SystemTray:
             self._icon.notify(message, title)
 
     def _create_icon(self) -> Image.Image:
-        """Create the tray icon image."""
-        # Create a simple microphone icon
+        """Create the tray icon image from logo PNG."""
         size = 64
-        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
+        logo_path = get_asset_path("logo.png")
 
-        # Background circle
-        bg_color = "#E53935" if self._enabled else "#666666"
-        draw.ellipse([4, 4, size - 4, size - 4], fill=bg_color)
+        try:
+            # Load and resize the logo
+            logo = Image.open(logo_path)
+            if logo.mode != "RGBA":
+                logo = logo.convert("RGBA")
+            image = logo.resize((size, size), Image.Resampling.LANCZOS)
 
-        # Microphone body (simplified)
-        mic_color = "#FFFFFF"
-        center_x = size // 2
-        center_y = size // 2
+            # If disabled, convert to grayscale
+            if not self._enabled:
+                # Convert to grayscale while preserving alpha
+                r, g, b, a = image.split()
+                gray = Image.merge("RGB", (r, g, b)).convert("L")
+                image = Image.merge("RGBA", (gray, gray, gray, a))
 
-        # Mic head
-        draw.ellipse(
-            [center_x - 10, center_y - 18, center_x + 10, center_y - 2],
-            fill=mic_color
-        )
-
-        # Mic body
-        draw.rectangle(
-            [center_x - 10, center_y - 12, center_x + 10, center_y + 5],
-            fill=mic_color
-        )
-
-        # Mic base
-        draw.ellipse(
-            [center_x - 10, center_y, center_x + 10, center_y + 10],
-            fill=mic_color
-        )
-
-        # Stand
-        draw.line(
-            [center_x, center_y + 10, center_x, center_y + 20],
-            fill=mic_color, width=4
-        )
-        draw.line(
-            [center_x - 10, center_y + 20, center_x + 10, center_y + 20],
-            fill=mic_color, width=4
-        )
-
-        return image
+            return image
+        except Exception:
+            # Fallback to a simple colored square if logo not found
+            image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            color = "#D4E157" if self._enabled else "#666666"
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(image)
+            draw.rounded_rectangle([4, 4, size - 4, size - 4], radius=8, fill=color)
+            return image
 
     def _show_dashboard(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         """Show the dashboard window."""
@@ -145,6 +141,8 @@ class SystemTray:
 
     def _exit(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         """Exit the application."""
+        # Stop the tray icon first (from within pystray's thread for clean shutdown)
+        self.stop()
+        # Then notify app to shutdown
         if self._on_exit:
             self._on_exit()
-        self.stop()
