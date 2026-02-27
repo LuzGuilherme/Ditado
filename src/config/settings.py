@@ -40,7 +40,7 @@ class Settings:
     hotkey: str = "caps_lock"
 
     # Language (auto = auto-detect)
-    language: str = "pt-PT"
+    language: str = "pt"
 
     # UI settings
     indicator_position: str = "top-right"  # top-left, top-right, bottom-left, bottom-right

@@ -46,22 +46,14 @@ Examples:
 
 Only apply list formatting when there's a clear enumeration pattern. Don't force lists on regular sentences."""
 
-    PORTUGUESE_PT_PROMPT = """
+    PORTUGUESE_PROMPT = """
 
-IMPORTANT - European Portuguese (pt-PT):
+IMPORTANT - European Portuguese:
 - Use European Portuguese spelling and vocabulary, NOT Brazilian Portuguese
 - Use "tu" forms (fazes, tens, vais) instead of "você" forms
 - Use mesoclisis when appropriate (dar-te-ei, fá-lo-ia)
 - Use European vocabulary: "autocarro" not "ônibus", "telemóvel" not "celular", "pequeno-almoço" not "café da manhã", "casa de banho" not "banheiro"
 - Use European spelling: "facto" not "fato", "acção" not "ação" (unless new orthographic agreement is used)
-- Preserve the speaker's regional expressions and idioms"""
-
-    PORTUGUESE_BR_PROMPT = """
-
-IMPORTANT - Brazilian Portuguese (pt-BR):
-- Use Brazilian Portuguese spelling and vocabulary
-- Use "você" forms consistently
-- Use Brazilian vocabulary and expressions
 - Preserve the speaker's regional expressions and idioms"""
 
     def __init__(
@@ -81,10 +73,9 @@ IMPORTANT - Brazilian Portuguese (pt-BR):
         """Get the system prompt with language-specific additions and vocabulary."""
         prompt = self.SYSTEM_PROMPT
 
-        if language == "pt-PT":
-            prompt += self.PORTUGUESE_PT_PROMPT
-        elif language == "pt-BR":
-            prompt += self.PORTUGUESE_BR_PROMPT
+        # Use European Portuguese for any Portuguese variant
+        if language and language.startswith("pt"):
+            prompt += self.PORTUGUESE_PROMPT
 
         # Add custom vocabulary if available
         vocab_prompt = self._vocabulary.get_corrections_for_prompt()

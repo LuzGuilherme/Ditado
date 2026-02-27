@@ -56,10 +56,7 @@ class WhisperTranscriber:
 
         # Only set language if not auto-detect
         if language and language != "auto":
-            # Map regional variants to base language code for Whisper API
-            # (Whisper doesn't distinguish between pt-PT and pt-BR)
-            whisper_language = language.split("-")[0] if "-" in language else language
-            params["language"] = whisper_language
+            params["language"] = language
 
         try:
             # Call Whisper API
@@ -101,9 +98,7 @@ class WhisperTranscriber:
 SUPPORTED_LANGUAGES = {
     "auto": "Auto-detect",
     "en": "English",
-    "pt-PT": "Português (Portugal)",
-    "pt-BR": "Português (Brasil)",
-    "pt": "Portuguese",
+    "pt": "Português",
     "es": "Spanish",
     "fr": "French",
     "de": "German",
