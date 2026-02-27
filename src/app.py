@@ -467,7 +467,7 @@ class DitadoApp:
             self._overlay.set_state("enhancing")
             for attempt in range(MAX_RETRIES):
                 try:
-                    enhanced = self._enhancer.enhance(text)
+                    enhanced = self._enhancer.enhance(text, language=self._settings.language)
                     if enhanced != text:
                         logger.info(f"Enhanced: {enhanced[:50]}...")
                         try:

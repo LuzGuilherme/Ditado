@@ -28,6 +28,24 @@ Rules:
 7. ONLY return the cleaned text - no explanations or commentary
 8. If the input is very short (1-3 words), return it unchanged unless there's an obvious typo"""
 
+    PORTUGUESE_PT_PROMPT = """
+
+IMPORTANT - European Portuguese (pt-PT):
+- Use European Portuguese spelling and vocabulary, NOT Brazilian Portuguese
+- Use "tu" forms (fazes, tens, vais) instead of "você" forms
+- Use mesoclisis when appropriate (dar-te-ei, fá-lo-ia)
+- Use European vocabulary: "autocarro" not "ônibus", "telemóvel" not "celular", "pequeno-almoço" not "café da manhã", "casa de banho" not "banheiro"
+- Use European spelling: "facto" not "fato", "acção" not "ação" (unless new orthographic agreement is used)
+- Preserve the speaker's regional expressions and idioms"""
+
+    PORTUGUESE_BR_PROMPT = """
+
+IMPORTANT - Brazilian Portuguese (pt-BR):
+- Use Brazilian Portuguese spelling and vocabulary
+- Use "você" forms consistently
+- Use Brazilian vocabulary and expressions
+- Preserve the speaker's regional expressions and idioms"""
+
     def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
         self.client = OpenAI(
             api_key=api_key,
@@ -35,12 +53,22 @@ Rules:
         )
         self.model = model
 
-    def enhance(self, text: str) -> str:
+    def _get_system_prompt(self, language: str = None) -> str:
+        """Get the system prompt with language-specific additions."""
+        prompt = self.SYSTEM_PROMPT
+        if language == "pt-PT":
+            prompt += self.PORTUGUESE_PT_PROMPT
+        elif language == "pt-BR":
+            prompt += self.PORTUGUESE_BR_PROMPT
+        return prompt
+
+    def enhance(self, text: str, language: str = None) -> str:
         """
         Enhance/clean up transcribed text.
 
         Args:
             text: Raw transcribed text
+            language: Language code (e.g., 'pt-PT', 'pt-BR') for regional variants
 
         Returns:
             Enhanced text
@@ -53,11 +81,12 @@ Rules:
             return text
 
         try:
-            logger.debug(f"Calling GPT API for enhancement with model {self.model}")
+            system_prompt = self._get_system_prompt(language)
+            logger.debug(f"Calling GPT API for enhancement with model {self.model}, language={language}")
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text},
                 ],
                 max_tokens=len(text) * 2,  # Allow for some expansion
