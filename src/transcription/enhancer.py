@@ -26,7 +26,23 @@ Rules:
 5. Preserve technical terms, names, and intentional informal language
 6. If the text is already clean, return it unchanged
 7. ONLY return the cleaned text - no explanations or commentary
-8. If the input is very short (1-3 words), return it unchanged unless there's an obvious typo"""
+8. If the input is very short (1-3 words), return it unchanged unless there's an obvious typo
+
+LIST FORMATTING - Automatically format enumerations as structured lists:
+- When the speaker uses ordinal markers (first/segundo, second/segundo, third/terceiro, etc.), format as a numbered list
+- When the speaker uses "point one/ponto um", "point two/ponto dois", etc., format as a numbered list
+- When the speaker uses "bullet", "dash", "item", or similar markers, format as a bullet list using "- "
+- When listing multiple items with "and/e" or commas after an introductory phrase, consider formatting as a list
+- Add a colon after the introductory phrase and place each item on its own line
+- Preserve the original item content, just restructure the format
+
+Examples:
+- "I need to buy first apples second bananas third oranges" → "I need to buy:\n1. Apples\n2. Bananas\n3. Oranges"
+- "preciso de fazer primeiro isto segundo aquilo terceiro outra coisa" → "Preciso de fazer:\n1. Isto\n2. Aquilo\n3. Outra coisa"
+- "the main points are bullet improve performance bullet fix bugs bullet add tests" → "The main points are:\n- Improve performance\n- Fix bugs\n- Add tests"
+- "quero três coisas maçãs bananas e laranjas" → "Quero três coisas:\n- Maçãs\n- Bananas\n- Laranjas"
+
+Only apply list formatting when there's a clear enumeration pattern. Don't force lists on regular sentences."""
 
     PORTUGUESE_PT_PROMPT = """
 
@@ -89,7 +105,7 @@ IMPORTANT - Brazilian Portuguese (pt-BR):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text},
                 ],
-                max_tokens=len(text) * 2,  # Allow for some expansion
+                max_tokens=len(text) * 3,  # Allow for expansion (lists add line breaks)
                 temperature=0.3,  # Low temperature for consistent output
             )
 
@@ -98,9 +114,10 @@ IMPORTANT - Brazilian Portuguese (pt-BR):
             # Sanity check: if the response is way longer or shorter, use original
             # Use word count instead of character count since filler word removal
             # can legitimately reduce character count by 40-50%
+            # List formatting may add numbering/bullets but shouldn't drastically change word count
             original_words = len(text.split())
             enhanced_words = len(enhanced.split())
-            if enhanced_words > original_words * 3 or enhanced_words < original_words * 0.3:
+            if enhanced_words > original_words * 4 or enhanced_words < original_words * 0.25:
                 logger.debug("Enhancement result rejected (word count mismatch)")
                 return text
 
