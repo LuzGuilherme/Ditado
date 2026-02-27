@@ -20,6 +20,9 @@ from .input.typer import TextTyper
 from .ui.overlay import RecordingOverlay
 from .ui.tray import SystemTray, get_asset_path
 from .ui.home import HomeWindow
+from .ui.correction_popup import CorrectionPopup
+from .vocabulary.dictionary import get_dictionary
+from .vocabulary.correction_detector import CorrectionDetector, DetectedCorrection
 from .utils.logger import get_logger, setup_logging
 
 logger = get_logger("app")
@@ -45,6 +48,16 @@ class DitadoApp:
         self._sound_player = SoundPlayer(enabled=self._settings.sound_feedback)
         self._transcriber: Optional[WhisperTranscriber] = None
         self._enhancer: Optional[TextEnhancer] = None
+
+        # Vocabulary learning system
+        self._vocabulary = get_dictionary()
+        self._correction_popup = CorrectionPopup(
+            on_accept=self._on_correction_accepted,
+            on_reject=self._on_correction_rejected
+        )
+        self._correction_detector = CorrectionDetector(
+            on_correction_detected=self._on_correction_detected
+        )
 
         # Register cleanup handler for unexpected exits
         atexit.register(self._cleanup_on_exit)
@@ -496,6 +509,10 @@ class DitadoApp:
             # Fallback to clipboard
             self._typer.type_text_clipboard(text)
 
+        # Notify correction detector that text was inserted
+        # (starts monitoring clipboard for corrections)
+        self._correction_detector.text_inserted(text)
+
         # Hide overlay after typing
         self._overlay.hide()
 
@@ -520,3 +537,30 @@ class DitadoApp:
 
         logger.info(f"Dictation complete ({minutes:.2f} min)")
         print(f"Done. ({minutes:.2f} min)")
+
+    def _on_correction_detected(self, correction: DetectedCorrection) -> None:
+        """Handle detected correction from user edit."""
+        logger.debug(f"Correction detected: '{correction.original}' -> '{correction.corrected}'")
+
+        # Show popup on main thread
+        if self._root:
+            self._root.after(0, lambda: self._correction_popup.show(
+                correction.original,
+                correction.corrected,
+                self._root
+            ))
+
+    def _on_correction_accepted(self, wrong: str, correct: str) -> None:
+        """Handle user accepting a correction."""
+        self._vocabulary.add_correction(wrong, correct)
+        logger.info(f"Correction added to dictionary: '{wrong}' -> '{correct}'")
+
+        # Show confirmation
+        self._tray.show_notification(
+            "Ditado",
+            f"Adicionado ao dicionário: {wrong} → {correct}"
+        )
+
+    def _on_correction_rejected(self, wrong: str, correct: str) -> None:
+        """Handle user rejecting a correction."""
+        logger.debug(f"Correction rejected: '{wrong}' -> '{correct}'")

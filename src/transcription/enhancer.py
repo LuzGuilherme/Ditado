@@ -1,9 +1,11 @@
 """GPT text enhancement module for Ditado."""
 
+from typing import Optional
 from openai import OpenAI, APIError, APIConnectionError, RateLimitError, AuthenticationError
 import httpx
 
 from ..utils.logger import get_logger
+from ..vocabulary.dictionary import VocabularyDictionary, get_dictionary
 
 logger = get_logger("enhancer")
 
@@ -62,20 +64,33 @@ IMPORTANT - Brazilian Portuguese (pt-BR):
 - Use Brazilian vocabulary and expressions
 - Preserve the speaker's regional expressions and idioms"""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        vocabulary: Optional[VocabularyDictionary] = None
+    ):
         self.client = OpenAI(
             api_key=api_key,
             timeout=httpx.Timeout(30.0, connect=10.0)  # 30s total, 10s connect
         )
         self.model = model
+        self._vocabulary = vocabulary or get_dictionary()
 
     def _get_system_prompt(self, language: str = None) -> str:
-        """Get the system prompt with language-specific additions."""
+        """Get the system prompt with language-specific additions and vocabulary."""
         prompt = self.SYSTEM_PROMPT
+
         if language == "pt-PT":
             prompt += self.PORTUGUESE_PT_PROMPT
         elif language == "pt-BR":
             prompt += self.PORTUGUESE_BR_PROMPT
+
+        # Add custom vocabulary if available
+        vocab_prompt = self._vocabulary.get_corrections_for_prompt()
+        if vocab_prompt:
+            prompt += f"\n\nUSER VOCABULARY:\n{vocab_prompt}"
+
         return prompt
 
     def enhance(self, text: str, language: str = None) -> str:
@@ -92,6 +107,9 @@ IMPORTANT - Brazilian Portuguese (pt-BR):
         Raises:
             EnhancementError: If enhancement fails
         """
+        # Apply vocabulary corrections first (pre-GPT)
+        text = self._vocabulary.apply_corrections(text)
+
         # Skip very short text (single words only)
         if len(text.split()) <= 1:
             return text
