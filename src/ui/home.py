@@ -1,10 +1,11 @@
-"""Unified Dashboard for Ditado - Modern Light Theme Design."""
+"""Unified Dashboard for Ditado - "Soft Warmth" identity."""
 
 import os
 import sys
 import customtkinter as ctk
 import threading
 import webbrowser
+from datetime import datetime, timedelta
 from typing import Callable, Optional, List
 from PIL import Image
 from .. import __version__
@@ -13,6 +14,13 @@ from ..config.history import TranscriptionHistory, TranscriptionHistoryEntry, fo
 from ..transcription.whisper import SUPPORTED_LANGUAGES
 from ..input.hotkey import KeyCombinationCaptureDialog, format_hotkey_display
 from ..audio.recorder import list_audio_devices
+from .editorial import (
+    SessionCard,
+    HistoryWaveCard,
+    StreakCard,
+    SERIF_FAMILY,
+    SANS_FAMILY,
+)
 
 
 def get_asset_path(filename: str) -> str:
@@ -27,33 +35,32 @@ def get_asset_path(filename: str) -> str:
 
 
 # ============================================
-# COLOR PALETTE - Modern Light Theme
+# COLOR PALETTE - "Soft Warmth" identity
 # ============================================
-# Background colors
-BG_MAIN = "#E8E4D9"           # Warm cream/beige background
-BG_SIDEBAR = "#1E1E1E"        # Dark charcoal sidebar
-BG_CARD = "#FFFFFF"           # White cards
-BG_CARD_HOVER = "#F5F5F0"     # Slightly darker card bg on hover
-
-# Accent colors
-ACCENT_LIME = "#D4E157"       # Bright lime/yellow-green (primary accent)
-ACCENT_LIME_DARK = "#C0CA33"  # Darker lime for hover
-ACCENT_LIME_LIGHT = "#F0F4C3" # Light lime for backgrounds
-
-# Text colors
-TEXT_DARK = "#1E1E1E"         # Primary text (near black)
-TEXT_GRAY = "#757575"         # Secondary text
-TEXT_LIGHT = "#FFFFFF"        # Text on dark backgrounds
-TEXT_MUTED = "#9E9E9E"        # Muted/disabled text
-
-# Status colors
-SUCCESS = "#66BB6A"           # Green for success
-ERROR = "#EF5350"             # Red for errors
-WARNING = "#FFA726"           # Orange for warnings
-
-# Sidebar icon colors
-ICON_INACTIVE = "#6B6B6B"
-ICON_ACTIVE = "#FFFFFF"
+# Source of truth lives in src/ui/theme.py - importing here keeps the
+# dashboard, overlay, and any future surfaces visually coherent.
+from .theme import (
+    BG_MAIN,
+    BG_CARD,
+    BG_CARD_HOVER,
+    BG_SIDEBAR,
+    ACCENT_PRIMARY,
+    ACCENT_PRIMARY_DARK,
+    ACCENT_PRIMARY_LIGHT,
+    # Backwards-compat aliases for the existing call sites in this module
+    ACCENT_LIME,
+    ACCENT_LIME_DARK,
+    ACCENT_LIME_LIGHT,
+    TEXT_DARK,
+    TEXT_GRAY,
+    TEXT_LIGHT,
+    TEXT_MUTED,
+    SUCCESS,
+    ERROR,
+    WARNING,
+    ICON_INACTIVE,
+    ICON_ACTIVE,
+)
 
 
 class ModernStatsCard(ctk.CTkFrame):
@@ -667,74 +674,52 @@ class HomeWindow:
     # DASHBOARD TAB
     # ========================
     def _build_dashboard_tab(self) -> None:
-        """Build the dashboard tab content."""
+        """Build the dashboard tab content - "Soft Warmth" editorial layout."""
         tab = ctk.CTkFrame(self._content_frame, fg_color="transparent")
         self._tab_frames["dashboard"] = tab
 
-        # Header
-        header = ctk.CTkFrame(tab, fg_color="transparent")
-        header.pack(fill="x", pady=(0, 20))
+        # =====================================================
+        # TOP BAR: date (small caps) on left, streak card on right
+        # =====================================================
+        top_bar = ctk.CTkFrame(tab, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 6))
 
-        # Title section
-        title_frame = ctk.CTkFrame(header, fg_color="transparent")
-        title_frame.pack(side="left")
-
-        ctk.CTkLabel(
-            title_frame,
-            text="Managing Your",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=TEXT_DARK,
-        ).pack(anchor="w")
-
-        title_row = ctk.CTkFrame(title_frame, fg_color="transparent")
-        title_row.pack(anchor="w")
-
-        ctk.CTkLabel(
-            title_row,
-            text="Voice",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=TEXT_DARK,
-        ).pack(side="left")
-
-        # Lime accent badge
-        ctk.CTkLabel(
-            title_row,
-            text="●",
-            font=ctk.CTkFont(size=12),
-            text_color=ACCENT_LIME,
-        ).pack(side="left", padx=6)
-
-        ctk.CTkLabel(
-            title_row,
-            text="Workflows",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=TEXT_DARK,
-        ).pack(side="left")
-
-        # Action buttons on right
-        actions = ctk.CTkFrame(header, fg_color="transparent")
-        actions.pack(side="right")
-
-        ctk.CTkButton(
-            actions,
-            text="⚙",
-            width=40,
-            height=40,
-            corner_radius=12,
-            fg_color=BG_CARD,
-            hover_color=BG_CARD_HOVER,
+        # Date small caps (left)
+        date_label = ctk.CTkLabel(
+            top_bar,
+            text=self._get_date_label(),
+            font=ctk.CTkFont(family=SANS_FAMILY, size=11, weight="bold"),
             text_color=TEXT_GRAY,
-            font=ctk.CTkFont(size=18),
-            command=lambda: self._switch_tab("settings"),
-        ).pack(side="left", padx=(0, 8))
+        )
+        date_label.pack(side="left")
 
-        # Check if this is a first-time user (no API key and no transcriptions)
+        # Streak counter (right) - only if user has dictated at least once
+        streak_days = self._get_streak_days()
+        if streak_days > 0:
+            StreakCard(top_bar, days=streak_days).pack(side="right")
+
+        # =====================================================
+        # HERO GREETING: serif "Good {time of day}, {Name}."
+        # =====================================================
+        greeting_text = self._get_greeting_text()
+        hero = ctk.CTkLabel(
+            tab,
+            text=greeting_text,
+            font=ctk.CTkFont(family=SERIF_FAMILY, size=42),
+            text_color=TEXT_DARK,
+            anchor="w",
+            justify="left",
+        )
+        hero.pack(fill="x", pady=(8, 24), anchor="w")
+
+        # =====================================================
+        # ONBOARDING (if first-time) OR API WARNING (if mid-setup)
+        # =====================================================
         is_first_time_user = (
             not self._settings.is_configured() and
             self._settings.stats.total_requests == 0
         )
 
-        # Onboarding card for first-time users
         self._onboarding_card: Optional[OnboardingCard] = None
         if is_first_time_user:
             self._onboarding_card = OnboardingCard(
@@ -743,99 +728,73 @@ class HomeWindow:
                 on_settings=lambda: self._switch_tab("settings"),
                 on_skip=self._dismiss_onboarding,
             )
-            self._onboarding_card.pack(fill="x", pady=(0, 25))
+            self._onboarding_card.pack(fill="x", pady=(0, 20))
         else:
-            # API warning (only show if not first-time user but still not configured)
-            self._api_warning_frame = ctk.CTkFrame(tab, fg_color="#FFF8E1", corner_radius=12)
+            self._api_warning_frame = ctk.CTkFrame(tab, fg_color="#F5E5C3", corner_radius=12)
             if not self._settings.is_configured():
-                self._api_warning_frame.pack(fill="x", pady=(0, 20))
+                self._api_warning_frame.pack(fill="x", pady=(0, 16))
                 warn_content = ctk.CTkFrame(self._api_warning_frame, fg_color="transparent")
                 warn_content.pack(fill="x", padx=16, pady=12)
 
                 ctk.CTkLabel(
                     warn_content,
                     text="⚠",
-                    font=ctk.CTkFont(size=16),
+                    font=ctk.CTkFont(size=15),
                     text_color=WARNING,
                 ).pack(side="left")
 
                 ctk.CTkLabel(
                     warn_content,
-                    text="API key not configured. Go to the API tab to add your OpenAI API key.",
-                    font=ctk.CTkFont(size=13),
-                    text_color="#F57C00",
+                    text="API key not configured. Add your OpenAI key in the API tab to start dictating.",
+                    font=ctk.CTkFont(family=SANS_FAMILY, size=12),
+                    text_color=TEXT_DARK,
                 ).pack(side="left", padx=(10, 0))
 
-        # Stats cards row
-        cards_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        cards_frame.pack(fill="x", pady=(0, 25))
-        cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
-
-        # Words card
-        words = self._settings.stats.total_words
-        words_pct = min(100, int((words / 10000) * 100)) if words else 0
-        self._words_card = ModernStatsCard(
-            cards_frame,
-            title="Words",
-            value=self._format_number(words),
-            subtitle="10K",
-            percentage=words_pct,
-            icon="📝",
+        # =====================================================
+        # SESSION CARD - centerpiece (READY state)
+        # =====================================================
+        self._session_card = SessionCard(
+            tab,
+            hotkey_label=format_hotkey_display(self._settings.hotkey),
+            on_change_hotkey=lambda: self._switch_tab("settings"),
+            on_open_settings=lambda: self._switch_tab("settings"),
+            on_view_history=lambda: None,  # already on dashboard; no-op
         )
-        self._words_card.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
+        self._session_card.pack(fill="x", pady=(0, 26))
 
-        # WPM card
-        wpm = self._settings.get_estimated_wpm()
-        wpm_pct = min(100, int((wpm / 150) * 100)) if wpm else 0
-        self._wpm_card = ModernStatsCard(
-            cards_frame,
-            title="Est. WPM",
-            value=str(wpm) if wpm > 0 else "—",
-            subtitle="150",
-            percentage=wpm_pct,
-            icon="⚡",
-            accent_color=ACCENT_LIME,
-        )
-        self._wpm_card.grid(row=0, column=1, padx=5, sticky="nsew")
-
-        # Info card
-        self._info_card = InfoCard(cards_frame)
-        self._info_card.grid(row=0, column=2, padx=(10, 0), sticky="nsew")
-        self._info_card.set_hotkey(self._settings.hotkey)
-
-        # History section
-        history_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        history_frame.pack(fill="both", expand=True)
-
-        # History header
-        hist_header = ctk.CTkFrame(history_frame, fg_color="transparent")
-        hist_header.pack(fill="x", pady=(0, 15))
+        # =====================================================
+        # HISTORY ROW (horizontal, 3 cards)
+        # =====================================================
+        history_header = ctk.CTkFrame(tab, fg_color="transparent")
+        history_header.pack(fill="x", pady=(0, 12))
 
         ctk.CTkLabel(
-            hist_header,
-            text="Recent Transcriptions",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            history_header,
+            text="Recent dictations",
+            font=ctk.CTkFont(family=SERIF_FAMILY, size=18),
             text_color=TEXT_DARK,
         ).pack(side="left")
 
         ctk.CTkButton(
-            hist_header,
-            text="Clear History",
+            history_header,
+            text="Clear history",
             command=self._clear_history,
             fg_color="transparent",
             hover_color=BG_CARD_HOVER,
             text_color=TEXT_GRAY,
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=SANS_FAMILY, size=11),
             width=100,
-            height=32,
+            height=28,
         ).pack(side="right")
 
-        # History list
-        self._history_list = ctk.CTkScrollableFrame(
-            history_frame,
-            fg_color="transparent",
-        )
-        self._history_list.pack(fill="both", expand=True)
+        # Horizontal container that holds the history cards row.
+        # Refresh logic re-populates this.
+        self._history_row = ctk.CTkFrame(tab, fg_color="transparent")
+        self._history_row.pack(fill="both", expand=True)
+
+        # We still expose `_history_list` as None so legacy refresh code
+        # (which guards with `if self._history_list`) safely no-ops.
+        self._history_list = None
 
     # ========================
     # SETTINGS TAB
@@ -1459,6 +1418,81 @@ class HomeWindow:
         return str(num)
 
     # ========================
+    # SOFT WARMTH HELPERS
+    # ========================
+    def _get_date_label(self) -> str:
+        """Format today's date as small-caps editorial label.
+
+        Example output: "FRIDAY  ·  22 MAY 2026"
+        """
+        now = datetime.now()
+        # Locale-independent English day/month names (matches reference design)
+        weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                    "Friday", "Saturday", "Sunday"]
+        months = ["January", "February", "March", "April", "May", "June",
+                  "July", "August", "September", "October", "November", "December"]
+        day_name = weekdays[now.weekday()].upper()
+        month_name = months[now.month - 1].upper()
+        return f"{day_name}  ·  {now.day} {month_name} {now.year}"
+
+    def _get_first_name(self) -> str:
+        """Best-effort: the user's first name for the greeting."""
+        # Prefer a future settings field, fall back to OS username
+        name = getattr(self._settings, "user_first_name", "") or ""
+        if not name:
+            try:
+                name = os.getlogin()
+            except Exception:
+                name = ""
+        if not name:
+            return "there"
+        # Take first token, capitalize
+        first = name.replace("_", " ").split()[0] if name.strip() else ""
+        return first.capitalize() or "there"
+
+    def _get_greeting_text(self) -> str:
+        """Build the hero greeting: "Good morning/afternoon/evening, {Name}."."""
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            slot = "Good morning"
+        elif 12 <= hour < 18:
+            slot = "Good afternoon"
+        else:
+            slot = "Good evening"
+        return f"{slot}, {self._get_first_name()}."
+
+    def _get_streak_days(self) -> int:
+        """Count consecutive days (including today) with at least one dictation."""
+        entries = self._history.entries
+        if not entries:
+            return 0
+
+        # Build set of unique dictation dates
+        days = set()
+        for entry in entries:
+            try:
+                dt = datetime.fromisoformat(entry.timestamp)
+                days.add(dt.date())
+            except (ValueError, TypeError):
+                continue
+
+        if not days:
+            return 0
+
+        # Walk back from today as long as each previous day appears
+        today = datetime.now().date()
+        # If no dictation today and not yesterday either, no active streak
+        if today not in days and (today - max(days)).days > 1:
+            return 0
+
+        streak = 0
+        cursor = today if today in days else max(days)
+        while cursor in days:
+            streak += 1
+            cursor = cursor - timedelta(days=1)
+        return streak
+
+    # ========================
     # ACTIONS
     # ========================
     def _start_hotkey_capture(self) -> None:
@@ -1743,41 +1777,65 @@ class HomeWindow:
             self._wpm_card.set_percentage(min(100, int((wpm / 150) * 100)) if wpm else 0)
 
     def refresh_history(self) -> None:
-        """Update history list."""
-        if not self._window or not self._window.winfo_exists() or not self._history_list:
+        """Update the horizontal history cards row (Soft Warmth layout)."""
+        if not self._window or not self._window.winfo_exists():
             return
 
-        for widget in self._history_list.winfo_children():
+        row = getattr(self, "_history_row", None)
+        if row is None:
+            return
+
+        # Clear current cards
+        for widget in row.winfo_children():
             widget.destroy()
 
-        entries = self._history.get_recent(20)
+        entries = self._history.get_recent(3)  # 3-card row
 
         if not entries:
-            empty_frame = ctk.CTkFrame(self._history_list, fg_color="transparent")
-            empty_frame.pack(fill="both", expand=True, pady=40)
+            # Empty state — single subtle prompt where the cards would be
+            empty = ctk.CTkFrame(row, fg_color="transparent")
+            empty.pack(fill="both", expand=True, pady=24)
 
             ctk.CTkLabel(
-                empty_frame,
-                text="No transcriptions yet",
-                font=ctk.CTkFont(size=16),
+                empty,
+                text="No dictations yet.",
+                font=ctk.CTkFont(family=SERIF_FAMILY, size=15),
                 text_color=TEXT_MUTED,
             ).pack()
 
             ctk.CTkLabel(
-                empty_frame,
-                text=f"Hold your hotkey ({self._settings.hotkey}) to start dictating",
-                font=ctk.CTkFont(size=13),
+                empty,
+                text=f"Hold {format_hotkey_display(self._settings.hotkey)} to start.",
+                font=ctk.CTkFont(family=SANS_FAMILY, size=11),
                 text_color=TEXT_MUTED,
-            ).pack(pady=(8, 0))
+            ).pack(pady=(4, 0))
             return
 
-        for entry in entries:
-            HistoryItem(self._history_list, entry).pack(fill="x", pady=4)
+        # Grid: 3 equal-width columns
+        row.grid_columnconfigure((0, 1, 2), weight=1, uniform="hist")
+
+        for i, entry in enumerate(entries):
+            card = HistoryWaveCard(
+                row,
+                timestamp_label=format_relative_time(entry.timestamp),
+                title_preview=entry.text,
+                duration_seconds=entry.duration_seconds,
+                word_count=entry.word_count,
+                seed=entry.id,
+            )
+            card.grid(row=0, column=i, padx=(0 if i == 0 else 12, 0), sticky="nsew")
 
     def _update_info_card(self) -> None:
-        """Update the info card hotkey hint."""
+        """Update the hotkey hint wherever it's displayed."""
         if self._info_card:
             self._info_card.set_hotkey(self._settings.hotkey)
+        # Session card (Soft Warmth layout) - update headline hotkey label
+        session = getattr(self, "_session_card", None)
+        if session is not None:
+            try:
+                session.set_hotkey_label(format_hotkey_display(self._settings.hotkey))
+            except Exception:
+                pass
 
     def _update_api_warning(self) -> None:
         """Update API warning visibility."""

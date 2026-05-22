@@ -24,6 +24,12 @@ class AudioRecorder:
     CHANNELS = 1  # Mono
     DTYPE = np.int16
     MIN_AUDIO_LEVEL = 0.001  # Minimum average level to consider non-silent
+    # Trim threshold (slightly higher than silence guard so quiet speech survives)
+    TRIM_LEVEL = 0.003
+    # Window size for amplitude scan during trim, in samples (20ms @ 16kHz)
+    TRIM_WIN = 320
+    # Keep this much padding around detected speech (60ms) so we don't clip words
+    TRIM_PAD_MS = 60
 
     def __init__(self, device_index: Optional[int] = None):
         """
@@ -121,10 +127,19 @@ class AudioRecorder:
                 self._error = "Recording too short"
                 return None
 
-            # Check if audio is essentially silent
+            # Check if audio is essentially silent (whole-clip average)
             avg_level = np.abs(audio).mean() / 32768.0
             if avg_level < self.MIN_AUDIO_LEVEL:
                 self._error = "Recording appears to be silent"
+                return None
+
+            # Trim leading/trailing silence so we don't pay Whisper for
+            # silence and don't trigger its "Thanks for watching" hallucination
+            audio = self._trim_silence(audio)
+
+            # Re-check duration after trimming
+            if len(audio) < min_samples:
+                self._error = "No speech detected"
                 return None
 
             # Convert to WAV format
@@ -160,6 +175,38 @@ class AudioRecorder:
         if self._on_level_callback:
             level = np.abs(indata).mean() / 32768.0  # Normalize to 0-1
             self._on_level_callback(level)
+
+    def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
+        """Trim leading and trailing silence from an int16 mono audio array.
+
+        Uses a windowed RMS scan; keeps a small padding on each side so the
+        first/last words aren't clipped. Returns the original array unchanged
+        if it cannot find any frame above the threshold (caller handles that).
+        """
+        win = self.TRIM_WIN
+        if len(audio) <= win * 2:
+            return audio
+
+        # Per-window RMS, normalized to 0..1
+        # Reshape into (n_windows, win) by trimming the tail remainder
+        n_full = len(audio) // win
+        if n_full == 0:
+            return audio
+        head = audio[: n_full * win].reshape(n_full, win).astype(np.float32)
+        rms = np.sqrt(np.mean(head * head, axis=1)) / 32768.0
+
+        above = np.where(rms > self.TRIM_LEVEL)[0]
+        if len(above) == 0:
+            return audio  # No voiced frame found; leave caller to handle
+
+        first_win = above[0]
+        last_win = above[-1] + 1  # inclusive end
+
+        pad_samples = int((self.TRIM_PAD_MS / 1000.0) * self.SAMPLE_RATE)
+        start = max(0, first_win * win - pad_samples)
+        end = min(len(audio), last_win * win + pad_samples)
+
+        return audio[start:end]
 
     def _to_wav(self, audio: np.ndarray) -> bytes:
         """Convert numpy array to WAV bytes."""

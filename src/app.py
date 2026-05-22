@@ -24,6 +24,7 @@ from .ui.correction_popup import CorrectionPopup
 from .vocabulary.dictionary import get_dictionary
 from .vocabulary.correction_detector import CorrectionDetector, DetectedCorrection
 from .utils.logger import get_logger, setup_logging
+from .utils.window_context import get_foreground_context, WindowContext
 
 logger = get_logger("app")
 
@@ -64,6 +65,9 @@ class DitadoApp:
 
         # UI components
         self._overlay = RecordingOverlay(position=self._settings.indicator_position)
+
+        # Live audio level -> overlay waveform (called from recorder thread)
+        self._recorder.set_level_callback(self._overlay.set_audio_level)
         self._tray = SystemTray(
             on_toggle=self._on_toggle,
             on_settings=self._show_home,  # Settings now integrated in dashboard
@@ -89,6 +93,12 @@ class DitadoApp:
         # Lock to prevent duplicate processing
         self._processing_lock = threading.Lock()
         self._is_processing = False
+
+        # Last cleaned dictation (used to prime Whisper acoustic decoding)
+        self._last_dictation: str = ""
+
+        # Foreground app captured at recording start (used to tune GPT tone)
+        self._foreground_context: Optional[WindowContext] = None
 
         # Initialize API clients if configured
         self._init_api_clients()
@@ -325,6 +335,18 @@ class DitadoApp:
             # Small delay to ensure mute takes effect before recording starts
             time.sleep(0.05)
 
+        # Capture which app the user is dictating into BEFORE our overlay
+        # shows (so we don't accidentally pick up our own window).
+        # Filter out Ditado's own windows defensively.
+        try:
+            ctx = get_foreground_context()
+            if ctx and "ditado" not in (ctx.process_name or "").lower():
+                self._foreground_context = ctx
+            else:
+                self._foreground_context = None
+        except Exception:
+            self._foreground_context = None
+
         logger.debug("Recording started")
         print("Recording...")
         self._overlay.show()
@@ -441,11 +463,15 @@ class DitadoApp:
         minutes = 0.0
         last_error = None
 
+        # Build Whisper context prompt: user's vocab + tail of previous dictation
+        whisper_prompt = self._build_whisper_prompt()
+
         for attempt in range(MAX_RETRIES):
             try:
                 text, minutes = self._transcriber.transcribe(
                     audio_data,
                     language=self._settings.language,
+                    prompt=whisper_prompt,
                 )
                 break  # Success
             except TranscriptionError as e:
@@ -478,9 +504,14 @@ class DitadoApp:
         # Enhance with GPT if enabled (with retries)
         if self._settings.enhance_text and self._enhancer:
             self._overlay.set_state("enhancing")
+            app_label = self._foreground_context.app_label if self._foreground_context else None
             for attempt in range(MAX_RETRIES):
                 try:
-                    enhanced = self._enhancer.enhance(text, language=self._settings.language)
+                    enhanced = self._enhancer.enhance(
+                        text,
+                        language=self._settings.language,
+                        app_context=app_label,
+                    )
                     if enhanced != text:
                         logger.info(f"Enhanced: {enhanced[:50]}...")
                         try:
@@ -508,6 +539,9 @@ class DitadoApp:
         if not success:
             # Fallback to clipboard
             self._typer.type_text_clipboard(text)
+
+        # Remember the tail of this dictation to prime Whisper next time
+        self._last_dictation = text
 
         # Notify correction detector that text was inserted
         # (starts monitoring clipboard for corrections)
@@ -537,6 +571,31 @@ class DitadoApp:
 
         logger.info(f"Dictation complete ({minutes:.2f} min)")
         print(f"Done. ({minutes:.2f} min)")
+
+    def _build_whisper_prompt(self) -> Optional[str]:
+        """Build a Whisper `prompt` to bias acoustic decoding.
+
+        Combines (in priority order):
+          - User's custom vocabulary (preferred spellings, names, technical terms)
+          - Tail of the previous dictation (helps continuity & style)
+
+        Whisper hard-caps the prompt at ~224 tokens, so we keep this compact.
+        """
+        parts: list[str] = []
+
+        vocab_terms = self._vocabulary.get_terms_for_whisper_prompt(max_chars=400)
+        if vocab_terms:
+            parts.append(vocab_terms)
+
+        if self._last_dictation:
+            # Keep ~200 trailing chars - long enough for context, short enough for budget
+            tail = self._last_dictation[-200:]
+            parts.append(tail)
+
+        if not parts:
+            return None
+
+        return " ".join(parts)
 
     def _on_correction_detected(self, correction: DetectedCorrection) -> None:
         """Handle detected correction from user edit."""

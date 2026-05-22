@@ -1,4 +1,9 @@
-"""Modern recording overlay indicator for Ditado - Wispr Flow inspired."""
+"""Recording overlay for Ditado - "Soft Warmth" identity.
+
+A floating cream-coloured pill that hosts an animated waveform. The waveform
+reacts to real microphone audio level during recording (rolling buffer), and
+falls back to scripted motion during transcribing / enhancing / typing states.
+"""
 
 import tkinter as tk
 from typing import Optional, List
@@ -6,36 +11,35 @@ import threading
 import math
 import random
 
+from . import theme
+
 
 class RecordingOverlay:
-    """Modern floating overlay with animated soundwave indicator."""
+    """Floating waveform indicator in Soft Warmth style."""
 
-    # Pill shape dimensions
-    WIDTH = 80
-    HEIGHT = 36
-    CORNER_RADIUS = 18
+    # Pill geometry — wider than the old design to host a real waveform
+    WIDTH = 200
+    HEIGHT = 44
+    CORNER_RADIUS = 22
 
-    # Colors matching dashboard theme
-    BG_COLOR = "#1E1E1E"          # Dark background (matches sidebar)
-    BAR_RECORDING = "#D4E157"     # Lime for recording
-    BAR_PROCESSING = "#42A5F5"    # Blue for transcribing
-    BAR_ENHANCING = "#AB47BC"     # Purple for enhancing
-    BAR_SUCCESS = "#66BB6A"       # Green for typing/success
+    # Waveform
+    NUM_BARS = 13
+    BAR_WIDTH = 3
+    BAR_GAP = 5
+    MIN_BAR_HEIGHT = 3
+    MAX_BAR_HEIGHT = 28
 
-    # Animation settings
-    NUM_BARS = 5
-    BAR_WIDTH = 4
-    BAR_GAP = 6
-    MIN_BAR_HEIGHT = 4
-    MAX_BAR_HEIGHT = 20
-    ANIMATION_SPEED = 33  # ~30fps
+    # Animation cadence (~30fps)
+    ANIMATION_SPEED_MS = 33
 
-    def __init__(self, position: str = "top-right"):
+    # Color used as the "transparent" key — picked to never appear in the design
+    CHROMA_KEY = "magenta"
+
+    def __init__(self, position: str = "bottom-center"):
         """
-        Initialize the recording overlay.
-
         Args:
-            position: Screen position (top-left, top-right, bottom-left, bottom-right, bottom-center)
+            position: Screen position (top-left, top-right, bottom-left,
+                      bottom-right, bottom-center).
         """
         self._position = position
         self._root: Optional[tk.Tk] = None
@@ -46,26 +50,35 @@ class RecordingOverlay:
         self._running = False
         self._update_queue: List[str] = []
 
-        # Animation state
+        # Animation frame counter
         self._animation_frame = 0
-        self._bar_heights: List[float] = [self.MIN_BAR_HEIGHT] * self.NUM_BARS
-        self._bar_targets: List[float] = [self.MIN_BAR_HEIGHT] * self.NUM_BARS
-        self._bar_phases: List[float] = [i * 0.8 for i in range(self.NUM_BARS)]
 
-        # Success animation
+        # Per-bar interpolated height (smooth render)
+        self._bar_heights: List[float] = [self.MIN_BAR_HEIGHT] * self.NUM_BARS
+        # Per-bar target height (driven by audio level or scripted animation)
+        self._bar_targets: List[float] = [self.MIN_BAR_HEIGHT] * self.NUM_BARS
+
+        # Rolling buffer of recent normalized audio levels (oldest..newest).
+        # During recording each bar reads from a position in this buffer so
+        # the waveform appears to scroll right-to-left.
+        self._level_buffer: List[float] = [0.0] * self.NUM_BARS
+        self._level_lock = threading.Lock()
+        self._buffer_dirty = False
+
+        # Success animation progress
         self._success_progress = 0.0
 
+    # ------------------------------------------------------------------ API
     def start(self) -> None:
-        """Start the overlay in a separate thread."""
+        """Start the overlay in a dedicated Tkinter thread."""
         if self._running:
             return
-
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop the overlay and destroy its Tkinter instance."""
+        """Tear down the overlay window."""
         self._running = False
         if self._root:
             try:
@@ -76,32 +89,44 @@ class RecordingOverlay:
             self._root = None
 
     def show(self) -> None:
-        """Show the overlay."""
         self._update_queue.append("show")
 
     def hide(self) -> None:
-        """Hide the overlay."""
         self._update_queue.append("hide")
 
     def set_state(self, state: str) -> None:
-        """Set the overlay state (idle, recording, transcribing, enhancing, typing)."""
+        """idle | recording | transcribing | enhancing | typing"""
         self._update_queue.append(f"state:{state}")
 
     def set_position(self, position: str) -> None:
-        """Set the corner position."""
         self._position = position
         self._update_queue.append("reposition")
 
+    def set_audio_level(self, level: float) -> None:
+        """Push a new normalized audio level (0..1) into the rolling buffer.
+
+        Called from the recorder's audio thread — must be cheap and lock-safe.
+        """
+        # Light non-linear shaping so quiet speech still produces visible bars
+        # without saturating on loud peaks.
+        shaped = min(1.0, math.pow(max(0.0, level) * 8.0, 0.7))
+        with self._level_lock:
+            self._level_buffer.append(shaped)
+            if len(self._level_buffer) > self.NUM_BARS:
+                self._level_buffer = self._level_buffer[-self.NUM_BARS:]
+            self._buffer_dirty = True
+
+    # ---------------------------------------------------------- Tk thread
     def _run(self) -> None:
-        """Run the Tkinter mainloop in a separate thread."""
+        """Tk mainloop on this thread."""
         self._root = tk.Tk()
         self._root.title("Ditado")
         self._root.overrideredirect(True)
         self._root.attributes("-topmost", True)
-        self._root.attributes("-alpha", 0.95)
+        self._root.attributes("-alpha", 0.97)
         self._root.withdraw()
 
-        # Set window icon (300ms delay to override CustomTkinter's default at 200ms)
+        # Set icon (delayed to override CustomTkinter defaults if any)
         try:
             from .tray import get_asset_path
             icon_path = get_asset_path("icon.ico")
@@ -109,50 +134,42 @@ class RecordingOverlay:
         except Exception:
             pass
 
-        # Transparent window background
-        self._root.configure(bg='black')
+        # Chroma-key transparency: anything painted in CHROMA_KEY becomes see-through.
+        self._root.configure(bg=self.CHROMA_KEY)
         try:
-            self._root.attributes("-transparentcolor", "black")
+            self._root.attributes("-transparentcolor", self.CHROMA_KEY)
         except Exception:
             pass
 
-        # Create canvas with transparent background
         self._canvas = tk.Canvas(
             self._root,
             width=self.WIDTH,
             height=self.HEIGHT,
-            bg="black",
+            bg=self.CHROMA_KEY,
             highlightthickness=0,
         )
         self._canvas.pack()
 
-        # Initial draw and position
         self._draw_indicator()
         self._update_position()
 
-        # Start animation loop
-        self._root.after(self.ANIMATION_SPEED, self._animation_loop)
+        self._root.after(self.ANIMATION_SPEED_MS, self._animation_loop)
         self._root.mainloop()
 
     def _animation_loop(self) -> None:
-        """Main animation loop."""
         if not self._running:
             return
 
-        # Process command queue
         self._process_commands()
 
-        # Animate if visible
         if self._visible:
             self._update_animation()
             self._draw_indicator()
 
-        # Schedule next frame
         if self._running and self._root:
-            self._root.after(self.ANIMATION_SPEED, self._animation_loop)
+            self._root.after(self.ANIMATION_SPEED_MS, self._animation_loop)
 
     def _process_commands(self) -> None:
-        """Process queued commands."""
         while self._update_queue:
             cmd = self._update_queue.pop(0)
 
@@ -161,77 +178,90 @@ class RecordingOverlay:
                 self._visible = True
                 self._animation_frame = 0
                 self._success_progress = 0.0
+                # Reset the level buffer so the previous session's tail
+                # doesn't bleed into the next recording.
+                with self._level_lock:
+                    self._level_buffer = [0.0] * self.NUM_BARS
             elif cmd == "hide":
                 self._root.withdraw()
                 self._visible = False
             elif cmd.startswith("state:"):
-                new_state = cmd.split(":")[1]
+                new_state = cmd.split(":", 1)[1]
                 if new_state != self._state:
                     self._state = new_state
                     self._success_progress = 0.0
             elif cmd == "reposition":
                 self._update_position()
 
+    # --------------------------------------------------------- Animation
     def _update_animation(self) -> None:
-        """Update animation based on current state."""
         self._animation_frame += 1
 
         if self._state == "recording":
             self._animate_recording()
         elif self._state in ("transcribing", "processing"):
-            self._animate_processing()
+            self._animate_transcribing()
         elif self._state == "enhancing":
             self._animate_enhancing()
         elif self._state == "typing":
             self._animate_success()
         else:
-            # Idle - bars at minimum
             for i in range(self.NUM_BARS):
                 self._bar_targets[i] = self.MIN_BAR_HEIGHT
 
-        # Smooth interpolation of bar heights
         self._interpolate_bars()
 
     def _animate_recording(self) -> None:
-        """Animate soundwave bars during recording - energetic, random."""
+        """Drive each bar from the rolling audio-level buffer.
+
+        Bars on the right are most recent (newest sample), bars on the left
+        are older — creates a natural right-to-left scrolling waveform.
+        """
+        with self._level_lock:
+            buf = list(self._level_buffer)
+
+        # Pad / trim defensively
+        if len(buf) < self.NUM_BARS:
+            buf = [0.0] * (self.NUM_BARS - len(buf)) + buf
+        else:
+            buf = buf[-self.NUM_BARS:]
+
         for i in range(self.NUM_BARS):
-            # Sine wave base + randomness for natural feel
-            phase = self._animation_frame * 0.2 + self._bar_phases[i]
-            base = (math.sin(phase) + 1) / 2
-
-            # Add some randomness
-            noise = random.uniform(-0.15, 0.15)
-            height_ratio = base + noise
-
-            # Clamp and scale
-            height_ratio = max(0.2, min(1.0, height_ratio))
-            self._bar_targets[i] = (
-                self.MIN_BAR_HEIGHT +
-                height_ratio * (self.MAX_BAR_HEIGHT - self.MIN_BAR_HEIGHT)
+            level = buf[i]
+            # Mirror symmetric (center taller — gentle stylization)
+            center_boost = 1.0 - abs((i - (self.NUM_BARS - 1) / 2)) / self.NUM_BARS * 0.15
+            height = (
+                self.MIN_BAR_HEIGHT
+                + level * (self.MAX_BAR_HEIGHT - self.MIN_BAR_HEIGHT) * center_boost
             )
+            self._bar_targets[i] = height
 
-    def _animate_processing(self) -> None:
-        """Animate wave effect during processing - slower, wave-like."""
+    def _animate_transcribing(self) -> None:
+        """Slow shimmer while we wait for Whisper."""
         for i in range(self.NUM_BARS):
-            # Slower sine wave, sequential phase
-            phase = self._animation_frame * 0.1 + i * 0.6
+            phase = self._animation_frame * 0.12 + i * 0.45
             base = (math.sin(phase) + 1) / 2
-
-            height_ratio = 0.3 + base * 0.5  # More subtle range
+            ratio = 0.25 + base * 0.4
             self._bar_targets[i] = (
-                self.MIN_BAR_HEIGHT +
-                height_ratio * (self.MAX_BAR_HEIGHT - self.MIN_BAR_HEIGHT)
+                self.MIN_BAR_HEIGHT
+                + ratio * (self.MAX_BAR_HEIGHT - self.MIN_BAR_HEIGHT)
             )
 
     def _animate_enhancing(self) -> None:
-        """Animate during enhancement - similar to processing but different color."""
-        self._animate_processing()
+        """Slightly faster shimmer for GPT cleanup phase, with travelling peak."""
+        for i in range(self.NUM_BARS):
+            # Travelling crest
+            phase = self._animation_frame * 0.18 - i * 0.35
+            base = (math.sin(phase) + 1) / 2
+            ratio = 0.3 + base * 0.5
+            self._bar_targets[i] = (
+                self.MIN_BAR_HEIGHT
+                + ratio * (self.MAX_BAR_HEIGHT - self.MIN_BAR_HEIGHT)
+            )
 
     def _animate_success(self) -> None:
-        """Animate success state - bars collapse then checkmark."""
+        """Bars collapse toward zero, then a checkmark fades in."""
         self._success_progress = min(1.0, self._success_progress + 0.08)
-
-        # Bars collapse down
         collapse_ratio = 1.0 - self._success_progress
         for i in range(self.NUM_BARS):
             self._bar_targets[i] = self.MIN_BAR_HEIGHT + collapse_ratio * (
@@ -239,193 +269,156 @@ class RecordingOverlay:
             )
 
     def _interpolate_bars(self) -> None:
-        """Smoothly interpolate bar heights toward targets."""
-        lerp_speed = 0.3  # Interpolation speed
+        lerp = 0.35
         for i in range(self.NUM_BARS):
             diff = self._bar_targets[i] - self._bar_heights[i]
-            self._bar_heights[i] += diff * lerp_speed
+            self._bar_heights[i] += diff * lerp
 
+    # ---------------------------------------------------------- Position
     def _update_position(self) -> None:
-        """Update window position based on position setting."""
         if not self._root:
             return
-
-        screen_width = self._root.winfo_screenwidth()
-        screen_height = self._root.winfo_screenheight()
-
-        padding = 20
-        taskbar_height = 40  # Account for Windows taskbar
+        sw = self._root.winfo_screenwidth()
+        sh = self._root.winfo_screenheight()
+        pad = 20
+        taskbar = 40
 
         if self._position == "top-left":
-            x = padding
-            y = padding
+            x, y = pad, pad
         elif self._position == "top-right":
-            x = screen_width - self.WIDTH - padding
-            y = padding
+            x, y = sw - self.WIDTH - pad, pad
         elif self._position == "bottom-left":
-            x = padding
-            y = screen_height - self.HEIGHT - padding - taskbar_height
+            x, y = pad, sh - self.HEIGHT - pad - taskbar
         elif self._position == "bottom-center":
-            # Center horizontally, near bottom (like Wispr Flow)
-            x = (screen_width - self.WIDTH) // 2
-            y = screen_height - self.HEIGHT - padding - taskbar_height
-        else:  # bottom-right
-            x = screen_width - self.WIDTH - padding
-            y = screen_height - self.HEIGHT - padding - taskbar_height
+            x = (sw - self.WIDTH) // 2
+            y = sh - self.HEIGHT - pad - taskbar
+        else:  # bottom-right (default)
+            x = sw - self.WIDTH - pad
+            y = sh - self.HEIGHT - pad - taskbar
 
         self._root.geometry(f"{self.WIDTH}x{self.HEIGHT}+{x}+{y}")
 
+    # --------------------------------------------------------- Rendering
     def _draw_indicator(self) -> None:
-        """Draw the indicator based on current state."""
         if not self._canvas:
             return
-
         self._canvas.delete("all")
 
-        # Draw pill-shaped background
+        # Pill background (cream paper)
         self._draw_rounded_rect(
-            0, 0, self.WIDTH, self.HEIGHT,
-            self.CORNER_RADIUS, self.BG_COLOR
+            1, 1, self.WIDTH - 1, self.HEIGHT - 1,
+            self.CORNER_RADIUS - 1, theme.BG_OVERLAY
+        )
+        # Soft 1px warm border on top of the pill
+        self._draw_rounded_outline(
+            1, 1, self.WIDTH - 1, self.HEIGHT - 1,
+            self.CORNER_RADIUS - 1, theme.BG_OVERLAY_BORDER
         )
 
-        # Get bar color based on state
+        # Pick bar color based on state
         if self._state == "recording":
-            bar_color = self.BAR_RECORDING
+            bar_color = theme.STATE_RECORDING
         elif self._state in ("transcribing", "processing"):
-            bar_color = self.BAR_PROCESSING
+            bar_color = theme.STATE_TRANSCRIBING
         elif self._state == "enhancing":
-            bar_color = self.BAR_ENHANCING
+            bar_color = theme.STATE_ENHANCING
         elif self._state == "typing":
-            bar_color = self.BAR_SUCCESS
+            bar_color = theme.STATE_TYPING
         else:
-            bar_color = "#555555"  # Idle gray
+            bar_color = theme.TEXT_MUTED
 
-        # Draw soundwave bars or checkmark
-        if self._state == "typing" and self._success_progress > 0.7:
-            # Draw checkmark when bars have collapsed
+        if self._state == "typing" and self._success_progress > 0.6:
             self._draw_checkmark(bar_color)
         else:
-            # Draw soundwave bars
-            self._draw_soundwave_bars(bar_color)
+            self._draw_waveform(bar_color)
 
-    def _draw_soundwave_bars(self, color: str) -> None:
-        """Draw the animated soundwave bars."""
-        # Calculate total width of bars
-        total_width = (
-            self.NUM_BARS * self.BAR_WIDTH +
-            (self.NUM_BARS - 1) * self.BAR_GAP
+    def _draw_waveform(self, color: str) -> None:
+        total_w = (
+            self.NUM_BARS * self.BAR_WIDTH
+            + (self.NUM_BARS - 1) * self.BAR_GAP
         )
-        start_x = (self.WIDTH - total_width) / 2
+        start_x = (self.WIDTH - total_w) / 2
         center_y = self.HEIGHT / 2
 
         for i in range(self.NUM_BARS):
             x = start_x + i * (self.BAR_WIDTH + self.BAR_GAP)
-            height = self._bar_heights[i]
-            y1 = center_y - height / 2
-            y2 = center_y + height / 2
-
-            # Draw rounded bar
+            h = max(self.MIN_BAR_HEIGHT, self._bar_heights[i])
+            y1 = center_y - h / 2
+            y2 = center_y + h / 2
+            # Rounded vertical bar
             self._draw_rounded_rect(
                 x, y1, x + self.BAR_WIDTH, y2,
                 self.BAR_WIDTH / 2, color
             )
 
     def _draw_checkmark(self, color: str) -> None:
-        """Draw a checkmark icon."""
         cx = self.WIDTH / 2
         cy = self.HEIGHT / 2
-        size = 10
-
-        # Checkmark path
+        size = 12
         self._canvas.create_line(
             cx - size * 0.6, cy,
             cx - size * 0.1, cy + size * 0.5,
-            fill=color, width=3, capstyle="round"
+            fill=color, width=3, capstyle="round",
         )
         self._canvas.create_line(
             cx - size * 0.1, cy + size * 0.5,
             cx + size * 0.7, cy - size * 0.4,
-            fill=color, width=3, capstyle="round"
+            fill=color, width=3, capstyle="round",
         )
 
-    def _draw_rounded_rect(
-        self, x1: float, y1: float, x2: float, y2: float,
-        radius: float, color: str
-    ) -> None:
-        """Draw a rounded rectangle using canvas arcs and polygons."""
-        # Ensure minimum dimensions
-        width = x2 - x1
-        height = y2 - y1
-        radius = min(radius, width / 2, height / 2)
-
-        # Create rounded rectangle using multiple shapes
-        points = []
-
-        # Top side
-        points.extend([x1 + radius, y1])
-        points.extend([x2 - radius, y1])
-
-        # Top-right corner
-        points.extend([x2, y1])
-        points.extend([x2, y1 + radius])
-
-        # Right side
-        points.extend([x2, y2 - radius])
-
-        # Bottom-right corner
-        points.extend([x2, y2])
-        points.extend([x2 - radius, y2])
-
-        # Bottom side
-        points.extend([x1 + radius, y2])
-
-        # Bottom-left corner
-        points.extend([x1, y2])
-        points.extend([x1, y2 - radius])
-
-        # Left side
-        points.extend([x1, y1 + radius])
-
-        # Top-left corner
-        points.extend([x1, y1])
-        points.extend([x1 + radius, y1])
-
-        # Draw as smooth polygon
-        self._canvas.create_polygon(
-            points,
-            fill=color,
-            outline=color,
-            smooth=True,
-        )
-
-        # Draw corner arcs for smoother corners
-        # Top-left
+    # ------------------------------------------------- Shape primitives
+    def _draw_rounded_rect(self, x1, y1, x2, y2, radius, color):
+        """Filled rounded rectangle via arcs + rectangles."""
+        radius = min(radius, (x2 - x1) / 2, (y2 - y1) / 2)
+        # Corner arcs
         self._canvas.create_arc(
             x1, y1, x1 + radius * 2, y1 + radius * 2,
-            start=90, extent=90, fill=color, outline=color
+            start=90, extent=90, fill=color, outline=color,
         )
-        # Top-right
         self._canvas.create_arc(
             x2 - radius * 2, y1, x2, y1 + radius * 2,
-            start=0, extent=90, fill=color, outline=color
+            start=0, extent=90, fill=color, outline=color,
         )
-        # Bottom-right
         self._canvas.create_arc(
             x2 - radius * 2, y2 - radius * 2, x2, y2,
-            start=270, extent=90, fill=color, outline=color
+            start=270, extent=90, fill=color, outline=color,
         )
-        # Bottom-left
         self._canvas.create_arc(
             x1, y2 - radius * 2, x1 + radius * 2, y2,
-            start=180, extent=90, fill=color, outline=color
+            start=180, extent=90, fill=color, outline=color,
         )
-
-        # Fill center rectangles
+        # Two rectangles to fill the cross
         self._canvas.create_rectangle(
             x1 + radius, y1, x2 - radius, y2,
-            fill=color, outline=color
+            fill=color, outline=color,
         )
         self._canvas.create_rectangle(
             x1, y1 + radius, x2, y2 - radius,
-            fill=color, outline=color
+            fill=color, outline=color,
         )
+
+    def _draw_rounded_outline(self, x1, y1, x2, y2, radius, color):
+        """1px rounded outline (for the warm border)."""
+        radius = min(radius, (x2 - x1) / 2, (y2 - y1) / 2)
+        # Corner arcs as 1px strokes
+        self._canvas.create_arc(
+            x1, y1, x1 + radius * 2, y1 + radius * 2,
+            start=90, extent=90, style="arc", outline=color, width=1,
+        )
+        self._canvas.create_arc(
+            x2 - radius * 2, y1, x2, y1 + radius * 2,
+            start=0, extent=90, style="arc", outline=color, width=1,
+        )
+        self._canvas.create_arc(
+            x2 - radius * 2, y2 - radius * 2, x2, y2,
+            start=270, extent=90, style="arc", outline=color, width=1,
+        )
+        self._canvas.create_arc(
+            x1, y2 - radius * 2, x1 + radius * 2, y2,
+            start=180, extent=90, style="arc", outline=color, width=1,
+        )
+        # Straight edges
+        self._canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=color, width=1)
+        self._canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=color, width=1)
+        self._canvas.create_line(x1, y1 + radius, x1, y2 - radius, fill=color, width=1)
+        self._canvas.create_line(x2, y1 + radius, x2, y2 - radius, fill=color, width=1)

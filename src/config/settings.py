@@ -62,6 +62,9 @@ class Settings:
     # Sound feedback
     sound_feedback: bool = True
 
+    # Personalization (used in dashboard greeting)
+    user_first_name: str = ""
+
     # Usage statistics
     stats: UsageStats = field(default_factory=UsageStats)
 

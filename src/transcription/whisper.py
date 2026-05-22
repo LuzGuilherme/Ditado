@@ -29,6 +29,7 @@ class WhisperTranscriber:
         self,
         audio_data: bytes,
         language: Optional[str] = None,
+        prompt: Optional[str] = None,
     ) -> tuple[str, float]:
         """
         Transcribe audio data to text.
@@ -36,6 +37,8 @@ class WhisperTranscriber:
         Args:
             audio_data: WAV audio bytes
             language: Language code (e.g., 'en', 'pt') or None for auto-detect
+            prompt: Optional context prompt (up to ~224 tokens) to bias acoustic
+                decoding toward specific vocabulary, names, or recent context.
 
         Returns:
             Tuple of (transcribed text, duration in minutes)
@@ -57,6 +60,11 @@ class WhisperTranscriber:
         # Only set language if not auto-detect
         if language and language != "auto":
             params["language"] = language
+
+        # Whisper prompt biases acoustic decoding (vocab, names, style)
+        if prompt:
+            # Truncate to ~880 chars (~220 tokens, leaving headroom under 224 cap)
+            params["prompt"] = prompt[-880:]
 
         try:
             # Call Whisper API

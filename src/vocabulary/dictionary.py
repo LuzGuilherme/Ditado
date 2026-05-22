@@ -256,6 +256,51 @@ class VocabularyDictionary:
 
         return "\n".join(lines)
 
+    def get_terms_for_whisper_prompt(self, max_chars: int = 400) -> str:
+        """Return a compact list of vocabulary terms for the Whisper `prompt` parameter.
+
+        Whisper biases decoding toward the spelling of words it sees in the prompt.
+        We list the user's preferred spellings (the `correct` side of corrections,
+        plus all context terms), most-used first, capped to roughly `max_chars`.
+        """
+        terms: list[str] = []
+        seen = set()
+
+        # Most-used corrections first - we want Whisper to recognise the *correct* form
+        for entry in sorted(
+            self._data.corrections.values(),
+            key=lambda e: e.count,
+            reverse=True,
+        ):
+            term = entry.correct.strip()
+            key = term.lower()
+            if term and key not in seen:
+                terms.append(term)
+                seen.add(key)
+
+        # Then context terms
+        for term in self._data.context_terms:
+            term = term.strip()
+            key = term.lower()
+            if term and key not in seen:
+                terms.append(term)
+                seen.add(key)
+
+        if not terms:
+            return ""
+
+        # Pack into a comma-separated list, respecting char budget
+        out_parts: list[str] = []
+        used = 0
+        for t in terms:
+            piece = t if not out_parts else f", {t}"
+            if used + len(piece) > max_chars:
+                break
+            out_parts.append(piece)
+            used += len(piece)
+
+        return "".join(out_parts)
+
     def get_stats(self) -> dict:
         """Get vocabulary statistics."""
         return {
