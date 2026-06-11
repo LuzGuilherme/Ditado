@@ -343,6 +343,8 @@ class HistoryWaveCard(ctk.CTkFrame):
     ):
         super().__init__(master, fg_color=theme.BG_CARD, corner_radius=14, **kwargs)
         self._on_click = on_click
+        # Keep the full, untruncated text so the card can copy it to clipboard.
+        self._full_text = title_preview
 
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=16, pady=14)
@@ -382,18 +384,42 @@ class HistoryWaveCard(ctk.CTkFrame):
             seed=seed,
         ).pack(anchor="w", pady=(0, 8))
 
-        # Footer: duration · words
+        # Footer: duration · words (left) + copy button (right)
+        footer = ctk.CTkFrame(inner, fg_color="transparent")
+        footer.pack(fill="x")
+
         duration_str = self._format_duration(duration_seconds)
         ctk.CTkLabel(
-            inner,
+            footer,
             text=f"{duration_str}  ·  {word_count} words",
             font=ctk.CTkFont(family=SANS_FAMILY, size=10),
             text_color=theme.TEXT_MUTED,
             anchor="w",
-        ).pack(anchor="w")
+        ).pack(side="left")
 
-        # Click-through and hover affordance
-        for widget in (self, inner, *inner.winfo_children()):
+        self._copy_btn = ctk.CTkButton(
+            footer,
+            text="📋 Copy",
+            width=64,
+            height=24,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=theme.ACCENT_PRIMARY_LIGHT,
+            text_color=theme.TEXT_GRAY,
+            font=ctk.CTkFont(family=SANS_FAMILY, size=10),
+            command=self._copy_to_clipboard,
+        )
+        self._copy_btn.pack(side="right")
+
+        # Click-through and hover affordance. Clicking anywhere on the card
+        # (except the copy button) copies the full text to the clipboard.
+        clickable = [self, inner]
+        for widget in inner.winfo_children():
+            if widget is footer:
+                continue
+            clickable.append(widget)
+        clickable.extend(w for w in footer.winfo_children() if w is not self._copy_btn)
+        for widget in clickable:
             widget.bind("<Button-1>", self._handle_click)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
@@ -409,6 +435,26 @@ class HistoryWaveCard(ctk.CTkFrame):
     def _handle_click(self, _event=None) -> None:
         if self._on_click:
             self._on_click()
+        else:
+            # Default affordance: clicking the card copies its full text.
+            self._copy_to_clipboard()
+
+    def _copy_to_clipboard(self) -> None:
+        """Copy the full transcription text to the clipboard, with feedback."""
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(self._full_text)
+            self.update_idletasks()  # required for the clipboard to take effect
+
+            # Brief visual confirmation on the button.
+            self._copy_btn.configure(text="✓ Copied", text_color=theme.SUCCESS)
+            self.after(
+                1500,
+                lambda: self._copy_btn.winfo_exists()
+                and self._copy_btn.configure(text="📋 Copy", text_color=theme.TEXT_GRAY),
+            )
+        except Exception:
+            pass  # silently ignore if clipboard is unavailable
 
     def _on_enter(self, _event=None) -> None:
         self.configure(fg_color=theme.BG_CARD_HOVER)
