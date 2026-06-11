@@ -349,12 +349,31 @@ class HistoryWaveCard(ctk.CTkFrame):
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=16, pady=14)
 
-        # Timestamp small caps
+        # Header row: timestamp small caps (left) + copy button (right).
+        # The copy button lives here (not the footer) so it stays visible
+        # even when the card's lower edge is clipped by the window.
+        header = ctk.CTkFrame(inner, fg_color="transparent")
+        header.pack(fill="x")
+
         CapsLabel(
-            inner,
+            header,
             text=timestamp_label,
             text_color=theme.TEXT_GRAY,
-        ).pack(anchor="w")
+        ).pack(side="left")
+
+        self._copy_btn = ctk.CTkButton(
+            header,
+            text="📋 Copy",
+            width=64,
+            height=24,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=theme.ACCENT_PRIMARY_LIGHT,
+            text_color=theme.TEXT_GRAY,
+            font=ctk.CTkFont(family=SANS_FAMILY, size=10),
+            command=self._copy_to_clipboard,
+        )
+        self._copy_btn.pack(side="right")
 
         # Title preview (truncated, serif)
         preview = title_preview.replace("\n", " ").strip()
@@ -384,43 +403,26 @@ class HistoryWaveCard(ctk.CTkFrame):
             seed=seed,
         ).pack(anchor="w", pady=(0, 8))
 
-        # Footer: duration · words (left) + copy button (right)
-        footer = ctk.CTkFrame(inner, fg_color="transparent")
-        footer.pack(fill="x")
-
+        # Footer: duration · words
         duration_str = self._format_duration(duration_seconds)
         ctk.CTkLabel(
-            footer,
+            inner,
             text=f"{duration_str}  ·  {word_count} words",
             font=ctk.CTkFont(family=SANS_FAMILY, size=10),
             text_color=theme.TEXT_MUTED,
             anchor="w",
-        ).pack(side="left")
-
-        self._copy_btn = ctk.CTkButton(
-            footer,
-            text="📋 Copy",
-            width=64,
-            height=24,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=theme.ACCENT_PRIMARY_LIGHT,
-            text_color=theme.TEXT_GRAY,
-            font=ctk.CTkFont(family=SANS_FAMILY, size=10),
-            command=self._copy_to_clipboard,
-        )
-        self._copy_btn.pack(side="right")
+        ).pack(anchor="w")
 
         # Click-through and hover affordance. Clicking anywhere on the card
         # (except the copy button) copies the full text to the clipboard.
-        clickable = [self, inner]
-        for widget in inner.winfo_children():
-            if widget is footer:
+        for widget in (self, inner, header, *inner.winfo_children()):
+            if widget is self._copy_btn:
                 continue
-            clickable.append(widget)
-        clickable.extend(w for w in footer.winfo_children() if w is not self._copy_btn)
-        for widget in clickable:
             widget.bind("<Button-1>", self._handle_click)
+        # Bind the timestamp label inside the header too (but never the button).
+        for widget in header.winfo_children():
+            if widget is not self._copy_btn:
+                widget.bind("<Button-1>", self._handle_click)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
 
