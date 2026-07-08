@@ -194,12 +194,15 @@ class PillButton(ctk.CTkButton):
             text_color = theme.TEXT_LIGHT
             border_width = 0
             border_color = accent
+            # 14pt bold qualifies as WCAG "large text" (3:1) on terracotta
+            font = ctk.CTkFont(family=SANS_FAMILY, size=14, weight="bold")
         else:
             fg_color = "transparent"
             hover_color = theme.ACCENT_PRIMARY_LIGHT
             text_color = theme.TEXT_DARK
             border_width = 1
             border_color = theme.BG_OVERLAY_BORDER
+            font = ctk.CTkFont(family=SANS_FAMILY, size=12)
 
         super().__init__(
             master,
@@ -212,7 +215,7 @@ class PillButton(ctk.CTkButton):
             text_color=text_color,
             border_width=border_width,
             border_color=border_color,
-            font=ctk.CTkFont(family=SANS_FAMILY, size=12),
+            font=font,
             **kwargs,
         )
 
@@ -368,7 +371,7 @@ class HistoryWaveCard(ctk.CTkFrame):
             height=24,
             corner_radius=8,
             fg_color="transparent",
-            hover_color=theme.ACCENT_PRIMARY_LIGHT,
+            hover_color=theme.BG_CARD_HOVER,
             text_color=theme.TEXT_GRAY,
             font=ctk.CTkFont(family=SANS_FAMILY, size=10),
             command=self._copy_to_clipboard,
@@ -449,7 +452,7 @@ class HistoryWaveCard(ctk.CTkFrame):
             self.update_idletasks()  # required for the clipboard to take effect
 
             # Brief visual confirmation on the button.
-            self._copy_btn.configure(text="✓ Copied", text_color=theme.SUCCESS)
+            self._copy_btn.configure(text="✓ Copied", text_color=theme.SUCCESS_TEXT)
             self.after(
                 1500,
                 lambda: self._copy_btn.winfo_exists()
@@ -490,13 +493,13 @@ class StreakCard(ctk.CTkFrame):
             left,
             text="DAY",
             font=ctk.CTkFont(family=SANS_FAMILY, size=9, weight="bold"),
-            text_color=theme.ACCENT_PRIMARY_DARK,
+            text_color=theme.ACCENT_PRIMARY_TEXT,
         ).pack(anchor="w")
         ctk.CTkLabel(
             left,
             text="STREAK",
             font=ctk.CTkFont(family=SANS_FAMILY, size=9, weight="bold"),
-            text_color=theme.ACCENT_PRIMARY_DARK,
+            text_color=theme.ACCENT_PRIMARY_TEXT,
         ).pack(anchor="w")
 
         # Right: big number in serif

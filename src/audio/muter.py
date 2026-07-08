@@ -108,33 +108,30 @@ class AudioMuter:
         """
         with self._lock:
             if not PYCAW_AVAILABLE:
-                print("[MUTER] pycaw not available")
+                logger.debug("pycaw not available")
                 return False
 
             try:
                 volume = self._get_volume_interface()
                 if not volume:
-                    print("[MUTER] Failed to get volume interface")
+                    logger.debug("Failed to get volume interface")
                     return False
 
                 # Store original mute state
                 self._was_muted = bool(volume.GetMute())
-                print(f"[MUTER] Original mute state: {self._was_muted}")
+                logger.debug(f"Original mute state: {self._was_muted}")
 
                 # Only mute if not already muted
                 if not self._was_muted:
                     volume.SetMute(1, None)
                     self._is_muted_by_us = True
-                    print("[MUTER] System audio MUTED")
                     logger.debug("System audio muted")
                 else:
-                    print("[MUTER] System was already muted, skipping")
                     logger.debug("System audio was already muted")
 
                 return True
 
             except Exception as e:
-                print(f"[MUTER] Exception: {e}")
                 logger.error(f"Failed to mute system audio: {e}")
                 self._was_muted = None
                 self._is_muted_by_us = False

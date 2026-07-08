@@ -10,7 +10,7 @@ from typing import Callable, Optional, List
 from PIL import Image
 from .. import __version__
 from ..config.settings import Settings
-from ..config.history import TranscriptionHistory, TranscriptionHistoryEntry, format_relative_time
+from ..config.history import TranscriptionHistory, format_relative_time
 from ..transcription.whisper import SUPPORTED_LANGUAGES
 from ..input.hotkey import KeyCombinationCaptureDialog, format_hotkey_display
 from ..audio.recorder import list_audio_devices
@@ -47,170 +47,21 @@ from .theme import (
     ACCENT_PRIMARY,
     ACCENT_PRIMARY_DARK,
     ACCENT_PRIMARY_LIGHT,
-    # Backwards-compat aliases for the existing call sites in this module
-    ACCENT_LIME,
-    ACCENT_LIME_DARK,
-    ACCENT_LIME_LIGHT,
     TEXT_DARK,
     TEXT_GRAY,
     TEXT_LIGHT,
     TEXT_MUTED,
     SUCCESS,
+    SUCCESS_TEXT,
     ERROR,
+    ERROR_TEXT,
     WARNING,
+    WARNING_TEXT,
+    WARNING_BG,
     ICON_INACTIVE,
     ICON_ACTIVE,
+    SIDEBAR_TEXT_MUTED,
 )
-
-
-class ModernStatsCard(ctk.CTkFrame):
-    """Modern statistics card with progress bar visualization."""
-
-    def __init__(
-        self,
-        parent,
-        title: str,
-        value: str,
-        subtitle: str = "",
-        percentage: int = 0,
-        icon: str = "",
-        accent_color: str = ACCENT_LIME,
-        **kwargs
-    ):
-        super().__init__(parent, fg_color=BG_CARD, corner_radius=16, **kwargs)
-
-        self._percentage = percentage
-        self._accent_color = accent_color
-
-        # Main content container
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=20, pady=16)
-
-        # Header row with icon and percentage
-        header = ctk.CTkFrame(content, fg_color="transparent")
-        header.pack(fill="x")
-
-        # Left: Icon + Title
-        left = ctk.CTkFrame(header, fg_color="transparent")
-        left.pack(side="left")
-
-        if icon:
-            ctk.CTkLabel(
-                left, text=icon,
-                font=ctk.CTkFont(size=16),
-                text_color=TEXT_GRAY,
-            ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(
-            left, text=title,
-            font=ctk.CTkFont(size=13),
-            text_color=TEXT_GRAY,
-        ).pack(side="left")
-
-        # Right: Percentage badge
-        if percentage > 0:
-            badge_frame = ctk.CTkFrame(header, fg_color="transparent")
-            badge_frame.pack(side="right")
-
-            ctk.CTkLabel(
-                badge_frame, text=f"{percentage}%",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color=TEXT_DARK,
-            ).pack(side="left", padx=(0, 4))
-
-            # Circular progress indicator (simplified as text)
-            ctk.CTkLabel(
-                badge_frame, text="●",
-                font=ctk.CTkFont(size=14),
-                text_color=accent_color,
-            ).pack(side="left")
-
-        # Value row
-        value_frame = ctk.CTkFrame(content, fg_color="transparent")
-        value_frame.pack(fill="x", pady=(12, 0))
-
-        self._value_label = ctk.CTkLabel(
-            value_frame, text=value,
-            font=ctk.CTkFont(size=36, weight="bold"),
-            text_color=TEXT_DARK,
-        )
-        self._value_label.pack(side="left")
-
-        if subtitle:
-            ctk.CTkLabel(
-                value_frame, text=f"/{subtitle}",
-                font=ctk.CTkFont(size=14),
-                text_color=TEXT_MUTED,
-            ).pack(side="left", anchor="s", pady=(0, 6))
-
-        # Progress bar visualization (series of rectangles)
-        bar_frame = ctk.CTkFrame(content, fg_color="transparent", height=30)
-        bar_frame.pack(fill="x", pady=(12, 0))
-        bar_frame.pack_propagate(False)
-
-        self._bars = []
-        for i in range(8):
-            bar = ctk.CTkFrame(
-                bar_frame,
-                fg_color=accent_color if i < (percentage // 12.5) else "#E0E0E0",
-                corner_radius=4,
-                width=24,
-                height=30,
-            )
-            bar.pack(side="left", padx=2)
-            self._bars.append(bar)
-
-    def set_value(self, value: str) -> None:
-        self._value_label.configure(text=value)
-
-    def set_percentage(self, percentage: int) -> None:
-        self._percentage = percentage
-        filled = int(percentage // 12.5)
-        for i, bar in enumerate(self._bars):
-            bar.configure(fg_color=self._accent_color if i < filled else "#E0E0E0")
-
-
-class InfoCard(ctk.CTkFrame):
-    """Promotional/info card with gradient-like background."""
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, fg_color=ACCENT_LIME, corner_radius=16, **kwargs)
-
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=20, pady=20)
-
-        ctk.CTkLabel(
-            content, text="Voice Dictation",
-            font=ctk.CTkFont(size=14),
-            text_color=TEXT_DARK,
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            content, text="Take Your\nProductivity to\nthe Next Level",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color=TEXT_DARK,
-            justify="left",
-        ).pack(anchor="w", pady=(8, 0))
-
-        # Spacer
-        ctk.CTkFrame(content, fg_color="transparent").pack(fill="both", expand=True)
-
-        # Hotkey hint button
-        self._hint_btn = ctk.CTkButton(
-            content,
-            text="Hold [Key] to speak",
-            fg_color=BG_CARD,
-            hover_color=BG_CARD_HOVER,
-            text_color=TEXT_DARK,
-            corner_radius=20,
-            height=36,
-            font=ctk.CTkFont(size=12),
-        )
-        self._hint_btn.pack(anchor="w")
-
-    def set_hotkey(self, hotkey: str) -> None:
-        hotkey_text = format_hotkey_display(hotkey)
-        self._hint_btn.configure(text=f"Hold [{hotkey_text}] to speak")
 
 
 class OnboardingCard(ctk.CTkFrame):
@@ -275,7 +126,7 @@ class OnboardingCard(ctk.CTkFrame):
                 text=num,
                 font=ctk.CTkFont(size=14, weight="bold"),
                 text_color=TEXT_LIGHT,
-                fg_color=ACCENT_LIME_DARK,
+                fg_color=ACCENT_PRIMARY_DARK,
                 corner_radius=12,
                 width=24,
                 height=24,
@@ -295,9 +146,9 @@ class OnboardingCard(ctk.CTkFrame):
                     step_frame,
                     text=f"{btn_text} →",
                     command=btn_cmd,
-                    fg_color=ACCENT_LIME,
-                    hover_color=ACCENT_LIME_DARK,
-                    text_color=TEXT_DARK,
+                    fg_color=ACCENT_PRIMARY_DARK,
+                    hover_color=ACCENT_PRIMARY,
+                    text_color=TEXT_LIGHT,
                     width=120,
                     height=32,
                     corner_radius=16,
@@ -330,103 +181,6 @@ class OnboardingCard(ctk.CTkFrame):
             self._on_skip()
 
 
-class HistoryItem(ctk.CTkFrame):
-    """Single transcription history item - light theme with copy button."""
-
-    def __init__(self, parent, entry: TranscriptionHistoryEntry, **kwargs):
-        super().__init__(parent, fg_color=BG_CARD, corner_radius=12, **kwargs)
-
-        self._full_text = entry.text
-        self._parent_widget = parent
-
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="x", padx=16, pady=14)
-
-        # Left: lime indicator dot
-        ctk.CTkLabel(
-            content,
-            text="●",
-            font=ctk.CTkFont(size=10),
-            text_color=ACCENT_LIME_DARK,
-            width=20,
-        ).pack(side="left")
-
-        # Timestamp
-        ctk.CTkLabel(
-            content,
-            text=format_relative_time(entry.timestamp),
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED,
-            width=80,
-            anchor="w",
-        ).pack(side="left")
-
-        # Text preview
-        text_preview = entry.text[:70] + "..." if len(entry.text) > 70 else entry.text
-        text_preview = text_preview.replace("\n", " ")
-
-        ctk.CTkLabel(
-            content,
-            text=text_preview,
-            font=ctk.CTkFont(size=13),
-            text_color=TEXT_DARK,
-            anchor="w",
-        ).pack(side="left", fill="x", expand=True, padx=(12, 12))
-
-        # Copy button (always visible for better UX)
-        self._copy_btn = ctk.CTkButton(
-            content,
-            text="📋",
-            width=32,
-            height=28,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=ACCENT_LIME_LIGHT,
-            text_color=TEXT_GRAY,
-            font=ctk.CTkFont(size=14),
-            command=self._copy_to_clipboard,
-        )
-        self._copy_btn.pack(side="right", padx=(8, 0))
-
-        # Word count badge
-        ctk.CTkLabel(
-            content,
-            text=f"{entry.word_count} words",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_GRAY,
-            fg_color=BG_CARD_HOVER,
-            corner_radius=10,
-            padx=10,
-            pady=4,
-        ).pack(side="right")
-
-        # Hover effects
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
-
-    def _on_enter(self, event) -> None:
-        self.configure(fg_color=BG_CARD_HOVER)
-        self._copy_btn.configure(fg_color=ACCENT_LIME_LIGHT)
-
-    def _on_leave(self, event) -> None:
-        self.configure(fg_color=BG_CARD)
-        self._copy_btn.configure(fg_color="transparent")
-
-    def _copy_to_clipboard(self) -> None:
-        """Copy full text to clipboard."""
-        try:
-            # Use tkinter's clipboard
-            self.clipboard_clear()
-            self.clipboard_append(self._full_text)
-            self.update()  # Required for clipboard to work
-
-            # Visual feedback - change button text briefly
-            self._copy_btn.configure(text="✓", text_color=SUCCESS)
-            self.after(1500, lambda: self._copy_btn.configure(text="📋", text_color=TEXT_GRAY))
-        except Exception:
-            pass  # Silently fail if clipboard not available
-
-
 class HomeWindow:
     """Unified dashboard window with modern light theme design."""
 
@@ -452,10 +206,6 @@ class HomeWindow:
         self._content_frame: Optional[ctk.CTkFrame] = None
 
         # Dashboard widgets
-        self._words_card: Optional[ModernStatsCard] = None
-        self._wpm_card: Optional[ModernStatsCard] = None
-        self._info_card: Optional[InfoCard] = None
-        self._history_list: Optional[ctk.CTkScrollableFrame] = None
         self._api_warning_frame: Optional[ctk.CTkFrame] = None
         self._onboarding_card: Optional[OnboardingCard] = None
 
@@ -471,13 +221,15 @@ class HomeWindow:
         self._enhance_var: Optional[ctk.BooleanVar] = None
         self._whisper_var: Optional[ctk.StringVar] = None
         self._gpt_var: Optional[ctk.StringVar] = None
+        self._history_text_var: Optional[ctk.BooleanVar] = None
 
-        # Status labels
+        # Status labels / async-action widgets
         self._mic_status: Optional[ctk.CTkLabel] = None
         self._api_status: Optional[ctk.CTkLabel] = None
-        self._save_status: Optional[ctk.CTkLabel] = None
-        self._save_btn: Optional[ctk.CTkButton] = None
-        self._toast_frame: Optional[ctk.CTkFrame] = None
+        self._mic_test_btn: Optional[ctk.CTkButton] = None
+        self._api_test_btn: Optional[ctk.CTkButton] = None
+        self._save_btns: List[ctk.CTkButton] = []
+        self._toast_frame: Optional[ctk.CTkToplevel] = None
 
         # Other state
         self._audio_devices = []
@@ -589,7 +341,7 @@ class HomeWindow:
                 width=40,
                 height=40,
                 corner_radius=12,
-                fg_color=ACCENT_LIME if tab_name == "dashboard" else "transparent",
+                fg_color=ACCENT_PRIMARY if tab_name == "dashboard" else "transparent",
                 hover_color="#3A3A3A",
                 text_color=TEXT_DARK if tab_name == "dashboard" else ICON_INACTIVE,
                 font=ctk.CTkFont(size=18),
@@ -606,7 +358,7 @@ class HomeWindow:
             sidebar,
             text=f"v{__version__}",
             font=ctk.CTkFont(size=10),
-            text_color=ICON_INACTIVE,
+            text_color=SIDEBAR_TEXT_MUTED,
         ).pack(pady=(0, 8))
 
         # Minimize button at bottom
@@ -656,7 +408,7 @@ class HomeWindow:
         # Update sidebar button styles
         for name, btn in self._sidebar_btns.items():
             if name == tab_name:
-                btn.configure(fg_color=ACCENT_LIME, text_color=TEXT_DARK)
+                btn.configure(fg_color=ACCENT_PRIMARY, text_color=TEXT_DARK)
             else:
                 btn.configure(fg_color="transparent", text_color=ICON_INACTIVE)
 
@@ -730,7 +482,13 @@ class HomeWindow:
             )
             self._onboarding_card.pack(fill="x", pady=(0, 20))
         else:
-            self._api_warning_frame = ctk.CTkFrame(tab, fg_color="#F5E5C3", corner_radius=12)
+            self._api_warning_frame = ctk.CTkFrame(
+                tab,
+                fg_color=WARNING_BG,
+                corner_radius=12,
+                border_width=1,
+                border_color=WARNING_TEXT,
+            )
             if not self._settings.is_configured():
                 self._api_warning_frame.pack(fill="x", pady=(0, 16))
                 warn_content = ctk.CTkFrame(self._api_warning_frame, fg_color="transparent")
@@ -740,7 +498,7 @@ class HomeWindow:
                     warn_content,
                     text="⚠",
                     font=ctk.CTkFont(size=15),
-                    text_color=WARNING,
+                    text_color=WARNING_TEXT,
                 ).pack(side="left")
 
                 ctk.CTkLabel(
@@ -792,10 +550,6 @@ class HomeWindow:
         self._history_row = ctk.CTkFrame(tab, fg_color="transparent")
         self._history_row.pack(fill="both", expand=True)
 
-        # We still expose `_history_list` as None so legacy refresh code
-        # (which guards with `if self._history_list`) safely no-ops.
-        self._history_list = None
-
     # ========================
     # SETTINGS TAB
     # ========================
@@ -842,10 +596,11 @@ class HomeWindow:
             hotkey_row,
             text="Capture Key",
             command=self._start_hotkey_capture,
-            fg_color=ACCENT_LIME,
-            hover_color=ACCENT_LIME_DARK,
-            text_color=TEXT_DARK,
-            width=110,
+            fg_color=ACCENT_PRIMARY,
+            hover_color=ACCENT_PRIMARY_DARK,
+            text_color=TEXT_LIGHT,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            width=120,
         )
         self._capture_btn.pack(side="left")
 
@@ -876,23 +631,25 @@ class HomeWindow:
             values=device_names,
             width=320,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(anchor="w", padx=20, pady=(0, 8))
 
         mic_btn_row = ctk.CTkFrame(mic_frame, fg_color="transparent")
         mic_btn_row.pack(anchor="w", padx=20, pady=(0, 16))
 
-        ctk.CTkButton(
+        self._mic_test_btn = ctk.CTkButton(
             mic_btn_row,
             text="Test Microphone",
             command=self._test_microphone,
-            fg_color=ACCENT_LIME,
-            hover_color=ACCENT_LIME_DARK,
-            text_color=TEXT_DARK,
-            width=130,
-        ).pack(side="left")
+            fg_color=ACCENT_PRIMARY,
+            hover_color=ACCENT_PRIMARY_DARK,
+            text_color=TEXT_LIGHT,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            width=150,
+        )
+        self._mic_test_btn.pack(side="left")
 
         self._mic_status = ctk.CTkLabel(
             mic_btn_row, text="",
@@ -920,8 +677,8 @@ class HomeWindow:
             values=lang_options,
             width=300,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(anchor="w", padx=20, pady=(0, 16))
 
@@ -939,8 +696,8 @@ class HomeWindow:
             variable=self._enhance_var,
             font=ctk.CTkFont(size=14),
             text_color=TEXT_DARK,
-            progress_color=ACCENT_LIME,
-            button_color=ACCENT_LIME_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(
@@ -967,8 +724,8 @@ class HomeWindow:
             values=positions,
             width=200,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(anchor="w", padx=20, pady=(0, 16))
 
@@ -1004,8 +761,8 @@ class HomeWindow:
             values=list(self._duration_values.keys()),
             width=130,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(side="left", padx=(12, 0))
 
@@ -1016,8 +773,8 @@ class HomeWindow:
             variable=self._auto_stop_var,
             font=ctk.CTkFont(size=13),
             text_color=TEXT_DARK,
-            progress_color=ACCENT_LIME,
-            button_color=ACCENT_LIME_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
         ).pack(anchor="w", padx=20, pady=(4, 16))
 
         # System Audio Section
@@ -1033,8 +790,8 @@ class HomeWindow:
             variable=self._mute_audio_var,
             font=ctk.CTkFont(size=14),
             text_color=TEXT_DARK,
-            progress_color=ACCENT_LIME,
-            button_color=ACCENT_LIME_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(
@@ -1055,8 +812,8 @@ class HomeWindow:
             variable=self._sound_feedback_var,
             font=ctk.CTkFont(size=14),
             text_color=TEXT_DARK,
-            progress_color=ACCENT_LIME,
-            button_color=ACCENT_LIME_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(
@@ -1079,13 +836,37 @@ class HomeWindow:
             variable=self._autostart_var,
             font=ctk.CTkFont(size=14),
             text_color=TEXT_DARK,
-            progress_color=ACCENT_LIME,
-            button_color=ACCENT_LIME_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(
             autostart_frame,
             text="Ditado will start automatically when you log in",
+            font=ctk.CTkFont(size=12),
+            text_color=TEXT_MUTED,
+        ).pack(anchor="w", padx=20, pady=(0, 16))
+
+        # Privacy Section
+        self._build_section_header(scroll, "Privacy")
+
+        privacy_frame = ctk.CTkFrame(scroll, fg_color=BG_CARD, corner_radius=12)
+        privacy_frame.pack(fill="x", pady=(0, 10))
+
+        self._history_text_var = ctk.BooleanVar(value=self._history.store_full_text)
+        ctk.CTkSwitch(
+            privacy_frame,
+            text="Store transcription text in history",
+            variable=self._history_text_var,
+            font=ctk.CTkFont(size=14),
+            text_color=TEXT_DARK,
+            progress_color=ACCENT_PRIMARY,
+            button_color=ACCENT_PRIMARY_DARK,
+        ).pack(anchor="w", padx=20, pady=(16, 4))
+
+        ctk.CTkLabel(
+            privacy_frame,
+            text="When off, new history entries keep only word counts — no text is saved to disk",
             font=ctk.CTkFont(size=12),
             text_color=TEXT_MUTED,
         ).pack(anchor="w", padx=20, pady=(0, 16))
@@ -1148,15 +929,17 @@ class HomeWindow:
         )
         self._show_key_btn.pack(side="left")
 
-        ctk.CTkButton(
+        self._api_test_btn = ctk.CTkButton(
             btn_row,
             text="Test Connection",
             command=self._test_api,
-            fg_color=ACCENT_LIME,
-            hover_color=ACCENT_LIME_DARK,
-            text_color=TEXT_DARK,
-            width=130,
-        ).pack(side="left", padx=(10, 0))
+            fg_color=ACCENT_PRIMARY,
+            hover_color=ACCENT_PRIMARY_DARK,
+            text_color=TEXT_LIGHT,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            width=150,
+        )
+        self._api_test_btn.pack(side="left", padx=(10, 0))
 
         self._api_status = ctk.CTkLabel(
             key_frame, text="",
@@ -1181,7 +964,7 @@ class HomeWindow:
             command=lambda: webbrowser.open("https://platform.openai.com/api-keys"),
             fg_color="transparent",
             hover_color=BG_CARD_HOVER,
-            text_color=ACCENT_LIME_DARK,
+            text_color=ACCENT_PRIMARY_DARK,
             font=ctk.CTkFont(size=12, underline=True),
             width=150,
             height=20,
@@ -1230,8 +1013,8 @@ class HomeWindow:
             values=["whisper-1"],
             width=200,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(anchor="w", padx=20, pady=(0, 12))
 
@@ -1248,8 +1031,8 @@ class HomeWindow:
             values=["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
             width=200,
             fg_color=BG_CARD_HOVER,
-            button_color=ACCENT_LIME,
-            button_hover_color=ACCENT_LIME_DARK,
+            button_color=ACCENT_PRIMARY,
+            button_hover_color=ACCENT_PRIMARY_DARK,
             text_color=TEXT_DARK,
         ).pack(anchor="w", padx=20, pady=(0, 16))
 
@@ -1301,7 +1084,7 @@ class HomeWindow:
 
         self._add_stat_row(cost_frame, "Whisper", f"${costs['whisper']:.4f}")
         self._add_stat_row(cost_frame, "GPT Enhancement", f"${costs['gpt']:.4f}")
-        self._add_stat_row(cost_frame, "Total", f"${costs['total']:.4f}", bold=True, color=SUCCESS)
+        self._add_stat_row(cost_frame, "Total", f"${costs['total']:.4f}", bold=True, color=SUCCESS_TEXT)
 
         # Pricing info
         ctk.CTkLabel(
@@ -1335,7 +1118,7 @@ class HomeWindow:
             command=lambda: webbrowser.open("https://github.com/LuzGuilherme/Ditado#readme"),
             fg_color="transparent",
             hover_color=BG_CARD_HOVER,
-            text_color=ACCENT_LIME_DARK,
+            text_color=ACCENT_PRIMARY_DARK,
             font=ctk.CTkFont(size=13),
             width=160,
             height=28,
@@ -1388,34 +1171,24 @@ class HomeWindow:
         ).pack(side="right")
 
     def _add_save_button(self, parent) -> None:
-        """Add save button to a tab."""
+        """Add a save button to a tab (one per tab; all get the saved feedback)."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(25, 15))
 
-        self._save_btn = ctk.CTkButton(
+        save_btn = ctk.CTkButton(
             btn_frame,
             text="Save Settings",
             command=self._save_settings,
-            fg_color=ACCENT_LIME,
-            hover_color=ACCENT_LIME_DARK,
-            text_color=TEXT_DARK,
+            fg_color=ACCENT_PRIMARY,
+            hover_color=ACCENT_PRIMARY_DARK,
+            text_color=TEXT_LIGHT,
             height=44,
             width=150,
             font=ctk.CTkFont(size=14, weight="bold"),
             corner_radius=12,
         )
-        self._save_btn.pack(side="left")
-
-        self._save_status = ctk.CTkLabel(
-            btn_frame, text="",
-            font=ctk.CTkFont(size=12),
-        )
-        self._save_status.pack(side="left", padx=(15, 0))
-
-    def _format_number(self, num: int) -> str:
-        if num >= 1000:
-            return f"{num / 1000:.1f}K"
-        return str(num)
+        save_btn.pack(side="left")
+        self._save_btns.append(save_btn)
 
     # ========================
     # SOFT WARMTH HELPERS
@@ -1530,7 +1303,7 @@ class HomeWindow:
         self._show_key_btn.configure(text="Hide Key" if self._show_key else "Show Key")
 
     def _test_microphone(self) -> None:
-        """Test the selected microphone."""
+        """Test the selected microphone (worker thread; UI updates marshaled)."""
         selected_name = self._audio_device_var.get()
         device_index = None
         if selected_name != "System Default":
@@ -1539,58 +1312,80 @@ class HomeWindow:
                     device_index = d["index"]
                     break
 
+        if self._mic_test_btn:
+            self._mic_test_btn.configure(state="disabled")
+        self._mic_status.configure(text="Recording a 1s sample...", text_color=TEXT_GRAY)
+
         def test():
             try:
                 import sounddevice as sd
                 import numpy as np
 
-                self._mic_status.configure(text="Recording...", text_color=TEXT_GRAY)
-
-                duration = 1.0
-                sample_rate = 16000
-                audio = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype=np.int16, device=device_index)
+                audio = sd.rec(16000, samplerate=16000, channels=1, dtype=np.int16, device=device_index)
                 sd.wait()
-
                 avg_level = np.abs(audio).mean() / 32768.0
 
                 if avg_level > 0.01:
-                    self._mic_status.configure(text="Microphone working great!", text_color=SUCCESS)
+                    result = ("Microphone working great!", SUCCESS_TEXT)
                 elif avg_level > 0.001:
-                    self._mic_status.configure(text="Mic detected but volume is low. Speak louder or move closer.", text_color=WARNING)
+                    result = ("Mic detected but volume is low. Speak louder or move closer.", WARNING_TEXT)
                 else:
-                    self._mic_status.configure(text="No sound detected. Check mic connection.", text_color=ERROR)
+                    result = ("No sound detected. Check mic connection.", ERROR_TEXT)
             except Exception as e:
                 error_msg = str(e)
                 if "PortAudio" in error_msg or "device" in error_msg.lower():
-                    self._mic_status.configure(text="Mic not found. Check it's connected.", text_color=ERROR)
+                    result = ("Mic not found. Check it's connected.", ERROR_TEXT)
                 else:
-                    self._mic_status.configure(text=f"Error: {error_msg[:40]}", text_color=ERROR)
+                    result = (f"Error: {error_msg[:40]}", ERROR_TEXT)
+            self._finish_async_test(self._mic_test_btn, self._mic_status, result)
 
-        self._mic_status.configure(text="Testing...", text_color=TEXT_GRAY)
         threading.Thread(target=test, daemon=True).start()
 
     def _test_api(self) -> None:
-        """Test the API connection."""
+        """Test the API connection (worker thread; UI updates marshaled)."""
         api_key = self._api_key_entry.get().strip()
+        if not api_key:
+            self._api_status.configure(text="API key is empty", text_color=ERROR_TEXT)
+            return
+        if not api_key.startswith("sk-"):
+            self._api_status.configure(text="Key should start with 'sk-'", text_color=ERROR_TEXT)
+            return
+
+        if self._api_test_btn:
+            self._api_test_btn.configure(state="disabled")
+        self._api_status.configure(text="Testing...", text_color=TEXT_GRAY)
 
         def test():
             try:
                 from openai import OpenAI
-                if not api_key:
-                    self._api_status.configure(text="API key is empty", text_color=ERROR)
-                    return
-                if not api_key.startswith("sk-"):
-                    self._api_status.configure(text="Key should start with 'sk-'", text_color=ERROR)
-                    return
-
                 client = OpenAI(api_key=api_key)
                 client.models.list()
-                self._api_status.configure(text="Connection successful!", text_color=SUCCESS)
+                result = ("Connection successful!", SUCCESS_TEXT)
             except Exception as e:
-                self._api_status.configure(text=f"Error: {str(e)[:40]}", text_color=ERROR)
+                result = (f"Error: {str(e)[:40]}", ERROR_TEXT)
+            self._finish_async_test(self._api_test_btn, self._api_status, result)
 
-        self._api_status.configure(text="Testing...", text_color=TEXT_GRAY)
         threading.Thread(target=test, daemon=True).start()
+
+    def _finish_async_test(self, btn, label, result) -> None:
+        """Post a worker-thread test result onto the Tk main loop.
+
+        Tkinter widgets must only be touched from the thread running the
+        mainloop; workers hand their (text, color) result to this method.
+        """
+        text, color = result
+
+        def apply():
+            if label is not None and label.winfo_exists():
+                label.configure(text=text, text_color=color)
+            if btn is not None and btn.winfo_exists():
+                btn.configure(state="normal")
+
+        try:
+            if self._window is not None:
+                self._window.after(0, apply)
+        except Exception:
+            pass  # window torn down while the test was running
 
     def _save_settings(self) -> None:
         """Save all settings."""
@@ -1617,6 +1412,10 @@ class HomeWindow:
                 if d["name"] == selected_name:
                     self._settings.audio_device_index = d["index"]
                     break
+
+        # History privacy preference
+        if self._history_text_var is not None:
+            self._history.set_privacy_mode(self._history_text_var.get())
 
         # Save to file
         self._settings.save()
@@ -1665,13 +1464,13 @@ class HomeWindow:
 
         self._toast_frame.geometry(f"{toast_width}x{toast_height}+{x}+{y}")
 
-        # Main card with rounded corners and subtle lime border
+        # Main card with rounded corners and subtle terracotta border
         card = ctk.CTkFrame(
             self._toast_frame,
             fg_color=BG_CARD,
             corner_radius=12,
             border_width=1,
-            border_color=ACCENT_LIME_LIGHT,
+            border_color=ACCENT_PRIMARY_LIGHT,
         )
         card.pack(fill="both", expand=True)
 
@@ -1699,23 +1498,17 @@ class HomeWindow:
             text_color=TEXT_DARK,
         ).pack(side="left")
 
-        # Also update button temporarily
-        if self._save_btn and self._save_btn.winfo_exists():
-            original_text = self._save_btn.cget("text")
-            self._save_btn.configure(
-                text="✓ Saved!",
-                fg_color=SUCCESS,
-            )
+        # Also update the save buttons temporarily (one per tab)
+        for btn in self._save_btns:
+            if btn.winfo_exists():
+                btn.configure(text="✓ Saved!", fg_color=SUCCESS)
 
-            # Restore button after delay
-            def restore_button():
-                if self._save_btn and self._save_btn.winfo_exists():
-                    self._save_btn.configure(
-                        text=original_text,
-                        fg_color=ACCENT_LIME,
-                    )
+        def restore_buttons():
+            for btn in self._save_btns:
+                if btn.winfo_exists():
+                    btn.configure(text="Save Settings", fg_color=ACCENT_PRIMARY)
 
-            self._window.after(2000, restore_button)
+        self._window.after(2000, restore_buttons)
 
         # Auto-hide toast after 2.5 seconds
         def hide_toast():
@@ -1757,24 +1550,8 @@ class HomeWindow:
 
     def refresh(self) -> None:
         """Refresh all dashboard content."""
-        self.refresh_stats()
         self.refresh_history()
         self._update_info_card()
-
-    def refresh_stats(self) -> None:
-        """Update statistics display."""
-        if not self._window or not self._window.winfo_exists():
-            return
-
-        if self._words_card:
-            words = self._settings.stats.total_words
-            self._words_card.set_value(self._format_number(words))
-            self._words_card.set_percentage(min(100, int((words / 10000) * 100)) if words else 0)
-
-        if self._wpm_card:
-            wpm = self._settings.get_estimated_wpm()
-            self._wpm_card.set_value(str(wpm) if wpm > 0 else "—")
-            self._wpm_card.set_percentage(min(100, int((wpm / 150) * 100)) if wpm else 0)
 
     def refresh_history(self) -> None:
         """Update the horizontal history cards row (Soft Warmth layout)."""
@@ -1827,8 +1604,6 @@ class HomeWindow:
 
     def _update_info_card(self) -> None:
         """Update the hotkey hint wherever it's displayed."""
-        if self._info_card:
-            self._info_card.set_hotkey(self._settings.hotkey)
         # Session card (Soft Warmth layout) - update headline hotkey label
         session = getattr(self, "_session_card", None)
         if session is not None:

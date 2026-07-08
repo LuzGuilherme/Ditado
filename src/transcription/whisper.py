@@ -11,8 +11,17 @@ logger = get_logger("whisper")
 
 
 class TranscriptionError(Exception):
-    """Custom exception for transcription errors."""
-    pass
+    """Custom exception for transcription errors.
+
+    ``retryable`` tells the caller whether waiting and retrying can help
+    (network hiccup, rate limit, 5xx) or is guaranteed useless (bad API key,
+    request rejected with 4xx) — retrying those only re-uploads the audio
+    and delays the error message.
+    """
+
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class WhisperTranscriber:
@@ -80,19 +89,30 @@ class WhisperTranscriber:
 
         except AuthenticationError as e:
             logger.error("Authentication failed - invalid API key")
-            raise TranscriptionError("Invalid API key. Please check your settings.") from e
+            raise TranscriptionError(
+                "Invalid API key. Please check your settings.", retryable=False
+            ) from e
         except RateLimitError as e:
             logger.warning("Rate limit exceeded")
-            raise TranscriptionError("Rate limit exceeded. Please wait and try again.") from e
+            raise TranscriptionError(
+                "Rate limit exceeded. Please wait and try again.", retryable=True
+            ) from e
         except APIConnectionError as e:
             logger.error(f"Network error: {e}")
-            raise TranscriptionError("Network error. Please check your connection.") from e
+            raise TranscriptionError(
+                "Network error. Please check your connection.", retryable=True
+            ) from e
         except APIError as e:
             logger.error(f"API error: {e}")
-            raise TranscriptionError(f"API error: {str(e)}") from e
+            status = getattr(e, "status_code", None)
+            # 4xx (except 429, caught above) is deterministic — don't retry
+            retryable = not (isinstance(status, int) and 400 <= status < 500)
+            raise TranscriptionError(f"API error: {str(e)}", retryable=retryable) from e
         except Exception as e:
+            # Unknown failures are most likely programming errors — retrying
+            # them just re-uploads the audio for the same crash.
             logger.error(f"Transcription failed: {e}")
-            raise TranscriptionError(f"Transcription failed: {str(e)}") from e
+            raise TranscriptionError(f"Transcription failed: {str(e)}", retryable=False) from e
 
     def update_api_key(self, api_key: str) -> None:
         """Update the API key."""

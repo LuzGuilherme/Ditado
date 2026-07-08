@@ -28,6 +28,7 @@ BG_OVERLAY_BORDER = "#D9CDB0"  # Warm gray border
 ACCENT_PRIMARY = "#B85838"        # Terracotta / rust - waveform, primary CTA
 ACCENT_PRIMARY_DARK = "#9A4628"   # Hover / pressed
 ACCENT_PRIMARY_LIGHT = "#E8C7B0"  # Pale peach - subtle backgrounds, hover bg
+ACCENT_PRIMARY_TEXT = "#8D4024"   # Terracotta for SMALL text on peach (AA 4.57:1)
 
 # ---------------------------------------------------------------------------
 # Text
@@ -35,7 +36,7 @@ ACCENT_PRIMARY_LIGHT = "#E8C7B0"  # Pale peach - subtle backgrounds, hover bg
 TEXT_DARK = "#1F2A3C"          # Primary text - deep navy
 TEXT_GRAY = "#6B6657"           # Secondary - warm gray
 TEXT_LIGHT = "#FAF5E6"          # Text on dark surfaces (cream-white)
-TEXT_MUTED = "#9A9282"          # Muted / placeholder
+TEXT_MUTED = "#6B665A"          # Muted / placeholder (AA 4.58:1 on BG_MAIN)
 
 # ---------------------------------------------------------------------------
 # Semantic
@@ -44,17 +45,26 @@ SUCCESS = "#6B8E5A"             # Olive-green - calmer than pure green
 ERROR = "#C04A3D"               # Warm red (close to terracotta family)
 WARNING = "#D49B3F"             # Amber
 
+# Text-grade semantic variants — dark enough for 12-13pt status text on cream
+# (WCAG AA >= 4.5:1 on BG_MAIN and BG_CARD). Keep SUCCESS/ERROR/WARNING for
+# fills, icons and large text; use these whenever the color carries words.
+SUCCESS_TEXT = "#4E6B41"
+ERROR_TEXT = "#A93E32"
+WARNING_TEXT = "#836027"
+WARNING_BG = "#F5E5C3"          # Warning banner surface
+
 # ---------------------------------------------------------------------------
 # Sidebar icons
 # ---------------------------------------------------------------------------
-ICON_INACTIVE = "#6B6B6B"
+ICON_INACTIVE = "#6B6B6B"          # Icon-only (3:1 UI-component rule)
 ICON_ACTIVE = TEXT_LIGHT
+SIDEBAR_TEXT_MUTED = "#868686"     # Small text on BG_SIDEBAR (AA 4.52:1)
 
 # ---------------------------------------------------------------------------
 # State accents (used by overlay)
 # ---------------------------------------------------------------------------
 STATE_RECORDING = ACCENT_PRIMARY        # Terracotta - "now recording"
-STATE_TRANSCRIBING = "#7A8FA8"          # Cool slate - waiting on Whisper
+STATE_TRANSCRIBING = "#768AA2"          # Cool slate - waiting on Whisper (3:1 on BG_OVERLAY)
 STATE_ENHANCING = "#8C6B9D"             # Soft mauve - GPT polishing
 STATE_TYPING = SUCCESS                  # Olive - typing into target app
 
@@ -79,10 +89,3 @@ FONT_SIZE_SUBHEADING = 16
 FONT_SIZE_BODY = 13
 FONT_SIZE_SMALL = 11
 FONT_SIZE_CAPS = 10      # Small-caps labels ("NOW RECORDING")
-
-# ---------------------------------------------------------------------------
-# Backwards-compat aliases (so existing home.py keeps working pre-migration)
-# ---------------------------------------------------------------------------
-ACCENT_LIME = ACCENT_PRIMARY
-ACCENT_LIME_DARK = ACCENT_PRIMARY_DARK
-ACCENT_LIME_LIGHT = ACCENT_PRIMARY_LIGHT

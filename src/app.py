@@ -17,6 +17,7 @@ from .transcription.whisper import WhisperTranscriber, TranscriptionError
 from .transcription.enhancer import TextEnhancer, EnhancementError
 from .input.hotkey import HotkeyListener
 from .input.typer import TextTyper
+from .recording_controller import RecordingController
 from .ui.overlay import RecordingOverlay
 from .ui.tray import SystemTray, get_asset_path
 from .ui.home import HomeWindow
@@ -30,7 +31,10 @@ logger = get_logger("app")
 
 # Retry configuration
 MAX_RETRIES = 3
-RETRY_DELAYS = [1, 2, 4]  # Exponential backoff in seconds
+RETRY_DELAYS = [1, 2]  # Backoff before the 2nd and 3rd attempts
+
+# Whisper rejects uploads over ~25 MB; leave headroom (~13 min at 16 kHz mono)
+MAX_UPLOAD_BYTES = 24 * 1024 * 1024
 
 
 class DitadoApp:
@@ -87,18 +91,24 @@ class DitadoApp:
         # Tkinter root for settings window
         self._root: Optional[ctk.CTk] = None
 
-        # Recording limit timer
-        self._recording_timer: Optional[threading.Timer] = None
-
-        # Lock to prevent duplicate processing
-        self._processing_lock = threading.Lock()
-        self._is_processing = False
+        # Serializes text injection so two finished dictations can't interleave
+        self._typing_lock = threading.Lock()
 
         # Last cleaned dictation (used to prime Whisper acoustic decoding)
         self._last_dictation: str = ""
 
-        # Foreground app captured at recording start (used to tune GPT tone)
-        self._foreground_context: Optional[WindowContext] = None
+        # Recording state machine: single-owner worker thread that serializes
+        # press/release/auto-stop/toggle and keeps hook callbacks cheap
+        self._controller = RecordingController(
+            recorder=self._recorder,
+            muter=self._muter,
+            sound_player=self._sound_player,
+            overlay=self._overlay,
+            get_settings=lambda: self._settings,
+            capture_context=self._capture_foreground_context,
+            on_audio_ready=self._start_processing_job,
+            notify=self._tray.show_notification,
+        )
 
         # Initialize API clients if configured
         self._init_api_clients()
@@ -137,9 +147,10 @@ class DitadoApp:
         if self._settings.auto_start_on_boot != is_autostart_enabled():
             set_autostart(self._settings.auto_start_on_boot)
 
-        # Start components
+        # Start components (controller before hotkey so events have a consumer)
         self._overlay.start()
         self._tray.start()
+        self._controller.start()
         self._hotkey.start()
 
         logger.info("Ditado is running")
@@ -184,6 +195,12 @@ class DitadoApp:
             self._hotkey.stop()
         except Exception as e:
             logger.debug(f"Error stopping hotkey: {e}")
+
+        # Stop the recording controller (ends any live recording, restores audio)
+        try:
+            self._controller.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping controller: {e}")
 
         # Stop overlay (has its own Tkinter instance)
         try:
@@ -241,6 +258,8 @@ class DitadoApp:
         """Handle enable/disable toggle from tray."""
         self._enabled = enabled
         self._hotkey.set_enabled(enabled)
+        # Stops and discards a live recording so the mic is never left open
+        self._controller.set_enabled(enabled)
 
         if enabled:
             logger.info("Dictation enabled")
@@ -321,136 +340,66 @@ class DitadoApp:
         self._tray.show_notification("Ditado Usage", message)
 
     def _on_hotkey_press(self) -> None:
-        """Handle hotkey press - start recording."""
-        if not self._enabled or not self._settings.is_configured():
-            return
+        """Hotkey pressed — enqueue only; the hook thread must never block."""
+        self._controller.on_press()
 
-        # Play start sound BEFORE muting so user can hear it
-        self._sound_player.play("start")
+    def _on_hotkey_release(self) -> None:
+        """Hotkey released — enqueue only; the hook thread must never block."""
+        self._controller.on_release()
 
-        # Mute system audio if enabled
-        if self._settings.mute_system_audio:
-            mute_result = self._muter.mute()
-            logger.debug(f"System audio mute result: {mute_result}")
-            # Small delay to ensure mute takes effect before recording starts
-            time.sleep(0.05)
-
-        # Capture which app the user is dictating into BEFORE our overlay
-        # shows (so we don't accidentally pick up our own window).
-        # Filter out Ditado's own windows defensively.
+    def _capture_foreground_context(self) -> Optional[WindowContext]:
+        """Capture which app the user is dictating into (never Ditado itself)."""
         try:
             ctx = get_foreground_context()
             if ctx and "ditado" not in (ctx.process_name or "").lower():
-                self._foreground_context = ctx
-            else:
-                self._foreground_context = None
+                return ctx
         except Exception:
-            self._foreground_context = None
+            pass
+        return None
 
-        logger.debug("Recording started")
-        print("Recording...")
-        self._overlay.show()
-        self._overlay.set_state("recording")
-
-        # Try to start recording
-        if not self._recorder.start():
-            error = self._recorder.get_last_error() or "Failed to start recording"
-            logger.error(f"Recording failed: {error}")
-            print(f"Error: {error}")
-            self._tray.show_notification("Ditado Error", error)
-            self._overlay.hide()
-            # Restore audio if recording failed to start
-            if self._settings.mute_system_audio:
-                self._muter.restore()
-            return
-
-        # Start auto-stop timer if enabled
-        if (self._settings.auto_stop_recording and
-            self._settings.max_recording_seconds > 0):
-            self._recording_timer = threading.Timer(
-                self._settings.max_recording_seconds,
-                self._auto_stop_recording
-            )
-            self._recording_timer.daemon = True
-            self._recording_timer.start()
-            logger.debug(f"Auto-stop timer set for {self._settings.max_recording_seconds}s")
-
-    def _auto_stop_recording(self) -> None:
-        """Auto-stop recording when limit is reached."""
-        if self._recorder.is_recording():
-            logger.info("Auto-stopping recording (limit reached)")
-            print("Recording limit reached, auto-stopping...")
-            self._tray.show_notification(
-                "Ditado",
-                f"Recording auto-stopped after {self._settings.max_recording_seconds // 60} min"
-            )
-            self._on_hotkey_release()
-
-    def _on_hotkey_release(self) -> None:
-        """Handle hotkey release - stop recording and transcribe."""
-        # Cancel auto-stop timer if running
-        if self._recording_timer:
-            self._recording_timer.cancel()
-            self._recording_timer = None
-
-        # Restore system audio immediately
-        if self._settings.mute_system_audio:
-            self._muter.restore()
-
-        # Play end sound AFTER unmuting so user can hear it
-        self._sound_player.play("end")
-
-        if not self._enabled or not self._recorder.is_recording():
-            return
-
-        # Prevent duplicate processing
-        with self._processing_lock:
-            if self._is_processing:
-                logger.debug("Already processing, ignoring duplicate release")
-                return
-            self._is_processing = True
-
-        # Stop recording
-        audio_data = self._recorder.stop()
-        duration = self._recorder.get_duration()
-
-        if not audio_data:
-            error = self._recorder.get_last_error() or "Recording too short"
-            logger.debug(f"Recording ignored: {error}")
-            print(f"{error}, ignoring.")
-            self._overlay.hide()
-            with self._processing_lock:
-                self._is_processing = False
-            return
-
-        # Show transcribing state
-        self._overlay.set_state("transcribing")
-        logger.debug(f"Processing audio ({duration:.2f}s)")
-        print("Processing...")
-
-        # Process in background thread
+    def _start_processing_job(self, audio_data: bytes, duration: float,
+                              context: Optional[WindowContext]) -> None:
+        """Spawn the per-dictation processing thread (called by the controller)."""
         threading.Thread(
             target=self._process_audio,
-            args=(audio_data, duration),
+            args=(audio_data, duration, context),
             daemon=True,
         ).start()
 
-    def _process_audio(self, audio_data: bytes, duration: float) -> None:
+    def _process_audio(self, audio_data: bytes, duration: float,
+                       context: Optional[WindowContext]) -> None:
         """Process recorded audio (transcribe and type)."""
         try:
-            self._process_audio_inner(audio_data, duration)
+            self._process_audio_inner(audio_data, duration, context)
+        except Exception as e:
+            # Never let this worker die silently: the overlay would stay
+            # stuck in its "transcribing"/"enhancing" animation forever.
+            logger.exception(f"Unexpected error while processing dictation: {e}")
+            try:
+                self._tray.show_notification("Ditado Error", f"Unexpected error: {str(e)[:80]}")
+            except Exception:
+                pass
         finally:
-            # Always reset processing flag when done
-            with self._processing_lock:
-                self._is_processing = False
+            # The controller reverts the overlay once no job is running
+            self._controller.job_finished()
 
-    def _process_audio_inner(self, audio_data: bytes, duration: float) -> None:
+    def _process_audio_inner(self, audio_data: bytes, duration: float,
+                             context: Optional[WindowContext]) -> None:
         """Inner processing logic."""
         if not self._transcriber:
             logger.error("Transcriber not initialized")
             print("Error: Transcriber not initialized")
             self._tray.show_notification("Ditado", "API not configured")
-            self._overlay.hide()
+            return
+
+        # Fail fast on oversized audio instead of uploading a doomed payload
+        if len(audio_data) > MAX_UPLOAD_BYTES:
+            logger.error(f"Recording too large for Whisper: {len(audio_data) / 1e6:.1f} MB")
+            self._tray.show_notification(
+                "Ditado Error",
+                "Recording too long to transcribe (max ~13 min). "
+                "Enable auto-stop or dictate in shorter takes.",
+            )
             return
 
         # Warn for long recordings
@@ -476,6 +425,12 @@ class DitadoApp:
                 break  # Success
             except TranscriptionError as e:
                 last_error = e
+                if not e.retryable:
+                    # Deterministic failure (bad key, 4xx): retrying would only
+                    # re-upload the audio and delay the error message
+                    logger.error(f"Transcription failed (not retrying): {e}")
+                    print(f"Transcription failed: {e}")
+                    break
                 if attempt < MAX_RETRIES - 1:
                     delay = RETRY_DELAYS[attempt]
                     logger.warning(f"Transcription failed (attempt {attempt + 1}), retrying in {delay}s: {e}")
@@ -491,10 +446,10 @@ class DitadoApp:
             else:
                 logger.debug("No speech detected")
                 print("No speech detected.")
-            self._overlay.hide()
             return
 
-        logger.info(f"Transcribed ({minutes:.2f} min): {text[:50]}...")
+        # Privacy: dictated content stays out of INFO logs (sizes only)
+        logger.info(f"Transcribed ({minutes:.2f} min, {len(text)} chars)")
         # Handle Unicode safely for console output
         try:
             print(f"Transcribed: {text}")
@@ -503,8 +458,8 @@ class DitadoApp:
 
         # Enhance with GPT if enabled (with retries)
         if self._settings.enhance_text and self._enhancer:
-            self._overlay.set_state("enhancing")
-            app_label = self._foreground_context.app_label if self._foreground_context else None
+            self._controller.job_set_state("enhancing")
+            app_label = context.app_label if context else None
             for attempt in range(MAX_RETRIES):
                 try:
                     enhanced = self._enhancer.enhance(
@@ -513,7 +468,7 @@ class DitadoApp:
                         app_context=app_label,
                     )
                     if enhanced != text:
-                        logger.info(f"Enhanced: {enhanced[:50]}...")
+                        logger.info(f"Enhanced ({len(enhanced)} chars)")
                         try:
                             print(f"Enhanced: {enhanced}")
                         except UnicodeEncodeError:
@@ -521,6 +476,10 @@ class DitadoApp:
                         text = enhanced
                     break
                 except EnhancementError as e:
+                    if not e.retryable:
+                        logger.error(f"Enhancement failed (not retrying), using original: {e}")
+                        print(f"Enhancement failed: {e}. Using original text.")
+                        break
                     if attempt < MAX_RETRIES - 1:
                         delay = RETRY_DELAYS[attempt]
                         logger.warning(f"Enhancement failed (attempt {attempt + 1}), retrying in {delay}s: {e}")
@@ -531,24 +490,40 @@ class DitadoApp:
                         print(f"Enhancement failed after {MAX_RETRIES} attempts, using original text")
                         # Continue with original text
 
-        # Type the text
-        self._overlay.set_state("typing")
-        time.sleep(0.1)  # Small delay before typing
+        # Type the text (serialized: concurrent dictations must not interleave)
+        with self._typing_lock:
+            self._controller.job_set_state("typing")
+            time.sleep(0.1)  # Small delay before typing
 
-        success = self._typer.type_text(text)
-        if not success:
-            # Fallback to clipboard
-            self._typer.type_text_clipboard(text)
+            # Stop watching the previous dictation BEFORE our own paste hits
+            # the clipboard, so Ditado can't mistake itself for a user edit
+            # and poison the vocabulary with a self-"correction"
+            self._correction_detector.stop_monitoring()
 
-        # Remember the tail of this dictation to prime Whisper next time
-        self._last_dictation = text
+            success = self._typer.type_text(text)
+            if not success:
+                # Both injection paths already failed inside type_text — leave
+                # the text on the clipboard and TELL the user (the old
+                # "fallback" silently repeated the exact same clipboard path)
+                if self._typer.copy_to_clipboard(text):
+                    self._tray.show_notification(
+                        "Ditado",
+                        "Couldn't type into this app — text copied to clipboard. "
+                        "Press Ctrl+V to paste.",
+                    )
+                else:
+                    self._tray.show_notification(
+                        "Ditado Error",
+                        "Couldn't type or copy the text. "
+                        "You can copy it from the dashboard history.",
+                    )
 
-        # Notify correction detector that text was inserted
-        # (starts monitoring clipboard for corrections)
-        self._correction_detector.text_inserted(text)
+            # Remember the tail of this dictation to prime Whisper next time
+            self._last_dictation = text
 
-        # Hide overlay after typing
-        self._overlay.hide()
+            # Notify correction detector that text was inserted
+            # (starts monitoring clipboard for corrections)
+            self._correction_detector.text_inserted(text)
 
         # Calculate word count
         word_count = len(text.split()) if text else 0
@@ -612,7 +587,8 @@ class DitadoApp:
     def _on_correction_accepted(self, wrong: str, correct: str) -> None:
         """Handle user accepting a correction."""
         self._vocabulary.add_correction(wrong, correct)
-        logger.info(f"Correction added to dictionary: '{wrong}' -> '{correct}'")
+        logger.info("Correction added to dictionary")
+        logger.debug(f"Correction: '{wrong}' -> '{correct}'")
 
         # Show confirmation
         self._tray.show_notification(

@@ -9,6 +9,7 @@ from datetime import datetime
 import threading
 
 from ..utils.logger import get_logger
+from ..utils.json_store import write_json_atomic, backup_corrupt_file
 
 logger = get_logger("vocabulary")
 
@@ -74,25 +75,27 @@ class VocabularyDictionary:
                     total_corrections_applied=data.get("total_corrections_applied", 0)
                 )
             except (json.JSONDecodeError, TypeError) as e:
-                logger.error(f"Error loading vocabulary: {e}")
+                backup = backup_corrupt_file(self._path)
+                logger.error(f"Vocabulary file corrupt ({e}). Backed up to '{backup}'.")
 
         return VocabularyData()
 
     def _save(self) -> None:
-        """Save vocabulary to file."""
-        with self._lock:
-            data = {
-                "corrections": {
-                    wrong: asdict(entry)
-                    for wrong, entry in self._data.corrections.items()
-                },
-                "context_terms": self._data.context_terms,
-                "total_corrections_applied": self._data.total_corrections_applied
-            }
+        """Save vocabulary to file. Caller MUST already hold self._lock.
 
-            self._path.parent.mkdir(exist_ok=True)
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+        (Taking the lock here deadlocked every caller — threading.Lock is
+        not reentrant, and all call sites invoke _save() inside the lock.)
+        """
+        data = {
+            "corrections": {
+                wrong: asdict(entry)
+                for wrong, entry in self._data.corrections.items()
+            },
+            "context_terms": self._data.context_terms,
+            "total_corrections_applied": self._data.total_corrections_applied
+        }
+
+        write_json_atomic(self._path, data, ensure_ascii=False)
 
     def add_correction(self, wrong: str, correct: str) -> bool:
         """
@@ -136,7 +139,7 @@ class VocabularyDictionary:
                     correct=correct
                 )
 
-            logger.info(f"Added correction: '{wrong}' -> '{correct}'")
+            logger.debug(f"Added correction: '{wrong}' -> '{correct}'")
             self._save()
             return True
 
@@ -148,7 +151,7 @@ class VocabularyDictionary:
             if wrong_lower in self._data.corrections:
                 del self._data.corrections[wrong_lower]
                 self._save()
-                logger.info(f"Removed correction for: '{wrong}'")
+                logger.debug(f"Removed correction for: '{wrong}'")
                 return True
         return False
 
@@ -209,7 +212,7 @@ class VocabularyDictionary:
             if term not in self._data.context_terms:
                 self._data.context_terms.append(term)
                 self._save()
-                logger.info(f"Added context term: '{term}'")
+                logger.debug(f"Added context term: '{term}'")
                 return True
         return False
 

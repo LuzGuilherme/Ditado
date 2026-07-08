@@ -190,6 +190,10 @@ class HotkeyListener:
         """Enable or disable the hotkey listener."""
         with self._lock:
             self._enabled = enabled
+            if not enabled:
+                # Drop any half-pressed combo so re-enabling starts clean
+                self._pressed_keys.clear()
+                self._is_active = False
 
     def set_hotkey(self, hotkey: str) -> None:
         """Change the hotkey."""

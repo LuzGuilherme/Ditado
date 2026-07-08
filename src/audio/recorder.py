@@ -86,10 +86,12 @@ class AudioRecorder:
             except sd.PortAudioError as e:
                 self._error = f"Audio device error: {e}"
                 logger.error(self._error)
+                self._close_stream_quietly()
                 return False
             except Exception as e:
                 self._error = f"Failed to start recording: {e}"
                 logger.error(self._error)
+                self._close_stream_quietly()
                 return False
 
     def stop(self) -> Optional[bytes]:
@@ -109,10 +111,13 @@ class AudioRecorder:
                 if self._stream:
                     self._stream.stop()
                     self._stream.close()
-                    self._stream = None
             except Exception as e:
                 self._error = f"Error stopping stream: {e}"
                 logger.error(self._error)
+            finally:
+                # Never keep a dangling handle: a leaked stream keeps the mic
+                # "busy" for other apps and can bleed audio into the next take
+                self._stream = None
 
             if not self._audio_data:
                 self._error = "No audio data captured"
@@ -144,6 +149,15 @@ class AudioRecorder:
 
             # Convert to WAV format
             return self._to_wav(audio)
+
+    def _close_stream_quietly(self) -> None:
+        """Close a half-opened stream so the device handle is never leaked."""
+        if self._stream is not None:
+            try:
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
 
     def is_recording(self) -> bool:
         """Check if currently recording."""

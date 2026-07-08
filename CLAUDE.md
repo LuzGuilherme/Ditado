@@ -30,22 +30,25 @@ Hotkey Press → Audio Recording → Whisper API → GPT Enhancement → Text In
 **Key modules:**
 
 - `src/app.py` - Main orchestrator (`DitadoApp` class) that coordinates all components
+- `src/recording_controller.py` - Push-to-talk state machine (single worker thread; owns press/release/auto-stop/toggle and the overlay state)
 - `src/audio/recorder.py` - Captures 16kHz mono WAV audio from microphone
-- `src/transcription/whisper.py` - Sends audio to OpenAI Whisper API, handles retries
+- `src/transcription/whisper.py` - Sends audio to OpenAI Whisper API (retries live in `src/app.py`)
 - `src/transcription/enhancer.py` - Cleans transcribed text via GPT (removes filler words, fixes grammar)
 - `src/input/hotkey.py` - Global hotkey listener using pynput (push-to-talk)
 - `src/input/typer.py` - Injects text at cursor position via pyautogui
 - `src/ui/overlay.py` - Floating recording indicator (Tkinter, runs in separate thread)
 - `src/ui/tray.py` - System tray icon with menu (pystray)
-- `src/ui/settings.py` - Settings window (CustomTkinter)
+- `src/ui/home.py` - Unified dashboard incl. settings tabs (CustomTkinter)
+- `src/ui/theme.py` - "Soft Warmth" design tokens (single source of truth for colors)
 - `src/config/settings.py` - Persistent settings stored in `~/.ditado/config.json`
 
 **Threading model:**
 - Main thread: Tkinter event loop (hidden root window)
-- Hotkey listener: Separate thread via pynput
+- Hotkey listener: pynput hook thread — callbacks ONLY enqueue events to the recording controller (never do blocking work in the hook)
+- Recording controller: dedicated worker thread; sole owner of recording state (mute, recorder start/stop, auto-stop timer, overlay show/hide)
 - Overlay: Separate thread with its own Tkinter instance
 - System tray: Separate thread via pystray
-- Audio processing: Spawned per-transcription
+- Audio processing: Spawned per-transcription; reports state back to the controller via `job_set_state`/`job_finished`
 
 ## Key Design Decisions
 

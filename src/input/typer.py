@@ -4,6 +4,10 @@ import time
 import pyautogui
 import pyperclip
 
+from ..utils.logger import get_logger
+
+logger = get_logger("typer")
+
 
 class TextTyper:
     """Type text at the current cursor position."""
@@ -40,6 +44,16 @@ class TextTyper:
         else:
             return self._type_via_keyboard(text)
 
+    def copy_to_clipboard(self, text: str) -> bool:
+        """Best-effort: leave text on the clipboard (used when typing fails,
+        so the user can still paste it manually)."""
+        try:
+            pyperclip.copy(text)
+            return True
+        except Exception as e:
+            logger.error(f"Could not copy text to clipboard: {e}")
+            return False
+
     def _type_via_keyboard(self, text: str) -> bool:
         """Type text directly via keyboard simulation."""
         try:
@@ -55,7 +69,7 @@ class TextTyper:
 
             return True
         except Exception as e:
-            print(f"Error typing text: {e}")
+            logger.error(f"Error typing text: {e}")
             return False
 
     def _type_via_clipboard(self, text: str) -> bool:
@@ -69,7 +83,8 @@ class TextTyper:
             # Small delay to ensure focus is on the target window
             time.sleep(0.05)
 
-            # Save current clipboard with multiple fallback attempts
+            # Save current clipboard TEXT (pyperclip can only read text;
+            # images/files come back as "")
             old_clipboard = None
             try:
                 old_clipboard = pyperclip.paste()
@@ -85,11 +100,14 @@ class TextTyper:
             # Paste
             pyautogui.hotkey("ctrl", "v")
 
-            # Small delay before restoring clipboard
-            time.sleep(0.15)
+            # The target app consumes the paste asynchronously — restoring the
+            # clipboard too early makes slow apps (Electron, RDP) paste the OLD
+            # content instead. 0.3s is a compromise, not a guarantee.
+            time.sleep(0.3)
 
-            # Restore old clipboard if we had one
-            if old_clipboard is not None:
+            # Restore only when there was real text. pyperclip returns "" for
+            # images/files, and writing "" back would destroy that content.
+            if old_clipboard:
                 try:
                     pyperclip.copy(old_clipboard)
                 except Exception:
@@ -97,13 +115,6 @@ class TextTyper:
 
             return True
         except Exception as e:
-            print(f"Error typing via clipboard: {e}")
+            logger.error(f"Error typing via clipboard: {e}")
             # Fallback to keyboard typing
             return self._type_via_keyboard(text)
-
-    def type_text_clipboard(self, text: str) -> bool:
-        """
-        Type text using clipboard (legacy method, now same as type_text).
-        Kept for backwards compatibility.
-        """
-        return self._type_via_clipboard(text)

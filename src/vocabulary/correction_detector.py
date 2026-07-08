@@ -164,7 +164,9 @@ class CorrectionDetector:
                 for c in self._detected_corrections
             ):
                 self._detected_corrections.append(correction)
-                logger.info(
+                # Privacy: clipboard-derived words only at DEBUG level —
+                # nothing is persisted before the user accepts the popup
+                logger.debug(
                     f"Detected correction: '{correction.original}' -> '{correction.corrected}'"
                 )
 

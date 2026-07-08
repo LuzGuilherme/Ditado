@@ -7,6 +7,8 @@ from typing import Callable, Optional
 from PIL import Image
 import pystray
 
+from . import theme
+
 
 def get_asset_path(filename: str) -> str:
     """Get the path to an asset file, works for both dev and bundled exe."""
@@ -121,7 +123,7 @@ class SystemTray:
         except Exception:
             # Fallback to a simple colored square if logo not found
             image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-            color = "#D4E157" if self._enabled else "#666666"
+            color = theme.ACCENT_PRIMARY if self._enabled else "#666666"
             from PIL import ImageDraw
             draw = ImageDraw.Draw(image)
             draw.rounded_rectangle([4, 4, size - 4, size - 4], radius=8, fill=color)

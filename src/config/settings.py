@@ -2,10 +2,13 @@
 
 import json
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime
 from typing import Optional, List
 import threading
+
+from ..utils.logger import get_logger
+from ..utils.json_store import write_json_atomic, backup_corrupt_file
 
 # Secure credential storage
 try:
@@ -16,6 +19,8 @@ except ImportError:
 
 KEYRING_SERVICE = "Ditado"
 KEYRING_USERNAME = "api_key"
+
+logger = get_logger("settings")
 
 
 @dataclass
@@ -71,6 +76,9 @@ class Settings:
     # Internal
     _config_path: Optional[Path] = field(default=None, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Whether the cached key is verifiably stored in the OS keyring
+    # (None = not checked yet)
+    _keyring_ok: Optional[bool] = field(default=None, repr=False)
 
     @property
     def api_key(self) -> str:
@@ -83,6 +91,7 @@ class Settings:
                 key = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
                 if key:
                     self._api_key_cached = key
+                    self._keyring_ok = True
                     return key
             except Exception:
                 pass
@@ -91,14 +100,34 @@ class Settings:
 
     @api_key.setter
     def api_key(self, value: str) -> None:
-        """Store API key in secure storage."""
+        """Store API key in secure storage, verifying the write took."""
         self._api_key_cached = value
+        self._keyring_ok = None
 
         if KEYRING_AVAILABLE and value:
             try:
                 keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, value)
+                # Round-trip check: never assume the backend actually stored it
+                self._keyring_ok = (
+                    keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) == value
+                )
             except Exception as e:
-                print(f"Warning: Could not store API key securely: {e}")
+                self._keyring_ok = False
+                logger.error(f"Could not store API key in Windows Credential Manager: {e}")
+
+    def _key_stored_in_keyring(self) -> bool:
+        """True when the cached key is verifiably present in the OS keyring."""
+        if not KEYRING_AVAILABLE or not self._api_key_cached:
+            return False
+        if self._keyring_ok is None:
+            try:
+                self._keyring_ok = (
+                    keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
+                    == self._api_key_cached
+                )
+            except Exception:
+                self._keyring_ok = False
+        return bool(self._keyring_ok)
 
     @classmethod
     def get_default_config_path(cls) -> Path:
@@ -118,17 +147,20 @@ class Settings:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Handle nested stats
-                stats_data = data.pop("stats", {})
-                stats = UsageStats(**stats_data)
-
-                # Remove internal fields if present
-                data.pop("_config_path", None)
-                data.pop("_lock", None)
-                data.pop("_api_key_cached", None)
+                # Handle nested stats (drop unknown keys from other versions)
+                stats_data = data.pop("stats", {}) or {}
+                stats_known = {f.name for f in fields(UsageStats)}
+                stats = UsageStats(
+                    **{k: v for k, v in stats_data.items() if k in stats_known}
+                )
 
                 # Migrate API key from config file to secure storage
                 old_api_key = data.pop("api_key", "")
+
+                # Keep only known public fields — an unknown key (e.g. config
+                # written by a newer version) must not nuke the whole file
+                known = {f.name for f in fields(cls) if not f.name.startswith("_")}
+                data = {k: v for k, v in data.items() if k in known}
 
                 settings = cls(**data, stats=stats)
                 settings._config_path = path
@@ -139,18 +171,24 @@ class Settings:
                         secure_key = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
                         if secure_key:
                             settings._api_key_cached = secure_key
+                            settings._keyring_ok = True
                     except Exception:
                         pass
 
-                # If no secure key but old key in config, migrate it
+                # If no secure key but old key in config, migrate it. save()
+                # keeps the key in the file whenever the keyring write could
+                # not be verified — the user's key is never silently lost.
                 if not settings._api_key_cached and old_api_key:
-                    settings.api_key = old_api_key  # This saves to keyring
-                    # Save config without API key to complete migration
+                    settings.api_key = old_api_key
                     settings.save()
 
                 return settings
             except (json.JSONDecodeError, TypeError) as e:
-                print(f"Error loading config: {e}. Using defaults.")
+                backup = backup_corrupt_file(path)
+                logger.error(
+                    f"Config file corrupt ({e}). Backed up to '{backup}' "
+                    "and starting with defaults."
+                )
 
         # Create new settings with defaults
         settings = cls()
@@ -179,12 +217,19 @@ class Settings:
                 "gpt_model": self.gpt_model,
                 "enhance_text": self.enhance_text,
                 "sound_feedback": self.sound_feedback,
+                "user_first_name": self.user_first_name,
                 "stats": asdict(self.stats),
             }
 
-            path.parent.mkdir(exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            # Fallback: if the key is NOT verifiably in the OS keyring, keep
+            # it in the config file — less secure, but never silently lost.
+            if self._api_key_cached and not self._key_stored_in_keyring():
+                data["api_key"] = self._api_key_cached
+                logger.warning(
+                    "Keyring unavailable — API key stored in config.json as fallback"
+                )
+
+            write_json_atomic(path, data)
 
     def add_usage(self, minutes: float, word_count: int = 0) -> None:
         """Add usage statistics."""

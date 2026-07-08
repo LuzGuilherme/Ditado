@@ -4,9 +4,14 @@ import json
 import uuid
 import threading
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime
 from typing import List, Optional
+
+from ..utils.logger import get_logger
+from ..utils.json_store import write_json_atomic, backup_corrupt_file
+
+logger = get_logger("history")
 
 
 @dataclass
@@ -67,8 +72,13 @@ class TranscriptionHistory:
                     data = json.load(f)
 
                 entries_data = data.get("entries", [])
+                # Drop unknown keys so entries written by a newer version
+                # can't nuke the whole history via TypeError
+                known = {f.name for f in fields(TranscriptionHistoryEntry)}
                 entries = [
-                    TranscriptionHistoryEntry(**entry)
+                    TranscriptionHistoryEntry(
+                        **{k: v for k, v in entry.items() if k in known}
+                    )
                     for entry in entries_data
                 ]
 
@@ -80,7 +90,11 @@ class TranscriptionHistory:
                 history._config_path = file_path
                 return history
             except (json.JSONDecodeError, TypeError, KeyError) as e:
-                print(f"Error loading history: {e}. Starting fresh.")
+                backup = backup_corrupt_file(file_path)
+                logger.error(
+                    f"History file corrupt ({e}). Backed up to '{backup}' "
+                    "and starting fresh."
+                )
 
         history = cls()
         history._config_path = file_path
@@ -101,9 +115,9 @@ class TranscriptionHistory:
             "store_full_text": self.store_full_text,
         }
 
-        path.parent.mkdir(exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        # Atomic: this file is rewritten on EVERY dictation — a crash
+        # mid-write must never truncate the whole history
+        write_json_atomic(path, data)
 
     def add_entry(self, entry: TranscriptionHistoryEntry) -> None:
         """Add a new transcription entry."""
