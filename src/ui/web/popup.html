@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>DitadoPopup</title>
+<style>
+@font-face {
+  font-family: "Archivo";
+  src: url("fonts/Archivo.ttf") format("truetype");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("fonts/Newsreader.ttf") format("truetype");
+  font-weight: 200 800;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("fonts/NewsreaderItalic.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: italic;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  background: #0D0B0A; /* cor-chave da janela (transparente no ecrã) */
+  font-family: "Archivo", "Segoe UI", sans-serif;
+}
+#card {
+  --ink: #F0E7D8;
+  --dim: #B4A085;
+  --faint: #82705A;
+  --amber: #E9A13B;
+  --amber-hi: #F6BA5E;
+  --amber-ink: #1D1508;
+  position: absolute;
+  inset: 0;
+  background: #171210;
+  border: 1px solid #3A2C1F;
+  border-radius: 16px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+#head { display: flex; align-items: center; gap: 8px; }
+#head .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--amber);
+}
+#head .t {
+  flex: 1;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+}
+#close {
+  background: none; border: none;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+#close:hover { color: var(--ink); }
+
+#words {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: "Newsreader", Georgia, serif;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#wrong {
+  font-size: 15px;
+  font-style: italic;
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42%;
+}
+#arrow { color: var(--faint); font-size: 12px; font-family: "Archivo", sans-serif; }
+#correct {
+  font-size: 17px;
+  color: var(--amber-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+button.act {
+  border: 0;
+  border-radius: 999px;
+  height: 30px;
+  padding: 0 16px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 640;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, transform .1s ease;
+}
+button.act:active { transform: scale(.97); }
+#accept { background: var(--amber); color: var(--amber-ink); }
+#accept:hover { background: var(--amber-hi); }
+#reject {
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid #3A2C1F;
+}
+#reject:hover { color: var(--ink); border-color: var(--faint); }
+
+/* a fita a esgotar-se: contagem para o auto-fechar (pausa em hover) */
+#drain {
+  position: absolute;
+  left: 0; bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--amber);
+  transform-origin: left;
+}
+#drain.run { animation: drain linear forwards; }
+@keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+#card:hover #drain { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { #drain { display: none; } }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head">
+      <span class="dot"></span>
+      <span class="t">CORREÇÃO DETETADA</span>
+      <button id="close" title="Fechar">×</button>
+    </div>
+    <div id="words">
+      <span id="wrong"></span>
+      <span id="arrow">→</span>
+      <span id="correct"></span>
+    </div>
+    <div id="actions">
+      <button class="act" id="reject">Ignorar</button>
+      <button class="act" id="accept">Adicionar</button>
+    </div>
+    <div id="drain"></div>
+  </div>
+
+<script>
+"use strict";
+let timer = null;
+let hovered = false;
+let remaining = 0;
+let lastTick = 0;
+
+const card = document.getElementById("card");
+const drain = document.getElementById("drain");
+
+function stopTimer() {
+  clearInterval(timer);
+  timer = null;
+}
+
+function startCountdown(ms) {
+  stopTimer();
+  remaining = ms;
+  lastTick = Date.now();
+  drain.classList.remove("run");
+  void drain.offsetWidth; // reinicia a animação
+  drain.style.animationDuration = ms + "ms";
+  drain.classList.add("run");
+  // hover pausa a contagem (o utilizador está a decidir)
+  timer = setInterval(() => {
+    const now = Date.now();
+    if (!hovered) remaining -= now - lastTick;
+    lastTick = now;
+    if (remaining <= 0) {
+      stopTimer();
+      pywebview.api.dismiss();
+    }
+  }, 120);
+}
+
+card.addEventListener("mouseenter", () => { hovered = true; });
+card.addEventListener("mouseleave", () => { hovered = false; });
+
+const cp = {
+  show(wrong, correct, ms) {
+    document.getElementById("wrong").textContent = wrong;
+    document.getElementById("correct").textContent = correct;
+    startCountdown(ms || 8000);
+  },
+  reset() {
+    stopTimer();
+    drain.classList.remove("run");
+  },
+};
+window.cp = cp;
+
+document.getElementById("accept").addEventListener("click", () => {
+  cp.reset(); pywebview.api.accept();
+});
+document.getElementById("reject").addEventListener("click", () => {
+  cp.reset(); pywebview.api.reject();
+});
+document.getElementById("close").addEventListener("click", () => {
+  cp.reset(); pywebview.api.dismiss();
+});
+</script>
+</body>
+</html>

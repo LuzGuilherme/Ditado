@@ -22,7 +22,7 @@ from .recording_controller import RecordingController
 from .ui.weboverlay import WebOverlay
 from .ui.tray import SystemTray
 from .ui.webhost import WebDashboard
-from .ui.correction_popup import CorrectionPopup
+from .ui.webpopup import WebCorrectionPopup
 from .vocabulary.dictionary import get_dictionary
 from .vocabulary.correction_detector import CorrectionDetector, DetectedCorrection
 from .utils.logger import get_logger, setup_logging
@@ -57,7 +57,7 @@ class DitadoApp:
 
         # Vocabulary learning system
         self._vocabulary = get_dictionary()
-        self._correction_popup = CorrectionPopup(
+        self._correction_popup = WebCorrectionPopup(
             on_accept=self._on_correction_accepted,
             on_reject=self._on_correction_rejected
         )
@@ -169,6 +169,7 @@ class DitadoApp:
         # destruída no stop(); fechar a janela apenas a esconde (fica no tray).
         self._dashboard.create()
         self._overlay.create()
+        self._correction_popup.create()
         try:
             webview.start()
         except KeyboardInterrupt:
@@ -215,7 +216,11 @@ class DitadoApp:
         except Exception as e:
             logger.debug(f"Error cleaning up muter: {e}")
 
-        # Destroy the dashboard window (unblocks webview.start on main thread)
+        # Destroy the webview windows (unblocks webview.start on main thread)
+        try:
+            self._correction_popup.destroy()
+        except Exception as e:
+            logger.debug(f"Error destroying popup: {e}")
         try:
             self._dashboard.destroy()
         except Exception as e:
