@@ -17,6 +17,7 @@ BG_MAIN = "#EFE5D2"            # Page background - warm cream
 BG_CARD = "#F7F0DD"            # Card / panel bg - slightly lighter cream
 BG_CARD_HOVER = "#F0E8D2"      # Subtle hover state
 BG_SIDEBAR = "#1A1F2C"         # Deep navy-charcoal (sidebar, dark surfaces)
+BG_SIDEBAR_HOVER = "#2A3142"   # Hover on sidebar buttons (navy-tinted, not gray)
 
 # Overlay-specific (slightly more opaque cream for the floating pill)
 BG_OVERLAY = "#F4ECD9"
@@ -89,3 +90,31 @@ FONT_SIZE_SUBHEADING = 16
 FONT_SIZE_BODY = 13
 FONT_SIZE_SMALL = 11
 FONT_SIZE_CAPS = 10      # Small-caps labels ("NOW RECORDING")
+
+# ---------------------------------------------------------------------------
+# Runtime font resolution
+# ---------------------------------------------------------------------------
+_RESOLVED_SERIF = None
+
+
+def serif_family() -> str:
+    """Best installed editorial serif, resolved once and cached.
+
+    Tk silently substitutes missing families with the SYSTEM default (not
+    Georgia), so "Cormorant Garamond" must be checked against the installed
+    fonts. Call only after a Tk root exists (any widget-build time is fine).
+    """
+    global _RESOLVED_SERIF
+    if _RESOLVED_SERIF is None:
+        try:
+            import tkinter.font as tkfont
+            installed = set(tkfont.families())
+            for candidate in (FONT_SERIF_NAME, FONT_SERIF_FALLBACK, "Cambria"):
+                if candidate in installed:
+                    _RESOLVED_SERIF = candidate
+                    break
+            else:
+                _RESOLVED_SERIF = FONT_SERIF_FALLBACK
+        except Exception:
+            _RESOLVED_SERIF = FONT_SERIF_FALLBACK
+    return _RESOLVED_SERIF

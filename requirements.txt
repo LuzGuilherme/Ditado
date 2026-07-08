@@ -18,8 +18,8 @@ pyautogui>=0.9.54
 pystray>=0.19.5
 Pillow>=10.0.0
 
-# Modern UI
-customtkinter>=5.2.0
+# UI web — dashboard e overlay (WebView2)
+pywebview>=6.0
 
 # Clipboard support
 pyperclip>=1.8.2

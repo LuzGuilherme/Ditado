@@ -1,4 +1,4 @@
 from .tray import SystemTray
-from .overlay import RecordingOverlay
+from .weboverlay import WebOverlay
 
-__all__ = ["SystemTray", "RecordingOverlay"]
+__all__ = ["SystemTray", "WebOverlay"]

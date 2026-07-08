@@ -6,7 +6,8 @@ import sys
 import threading
 import time
 from typing import Optional
-import customtkinter as ctk
+
+import webview
 
 from .config.settings import Settings, get_settings
 from .config.history import TranscriptionHistory, TranscriptionHistoryEntry
@@ -18,9 +19,9 @@ from .transcription.enhancer import TextEnhancer, EnhancementError
 from .input.hotkey import HotkeyListener
 from .input.typer import TextTyper
 from .recording_controller import RecordingController
-from .ui.overlay import RecordingOverlay
-from .ui.tray import SystemTray, get_asset_path
-from .ui.home import HomeWindow
+from .ui.weboverlay import WebOverlay
+from .ui.tray import SystemTray
+from .ui.webhost import WebDashboard
 from .ui.correction_popup import CorrectionPopup
 from .vocabulary.dictionary import get_dictionary
 from .vocabulary.correction_detector import CorrectionDetector, DetectedCorrection
@@ -67,8 +68,8 @@ class DitadoApp:
         # Register cleanup handler for unexpected exits
         atexit.register(self._cleanup_on_exit)
 
-        # UI components
-        self._overlay = RecordingOverlay(position=self._settings.indicator_position)
+        # UI components — overlay web "Fita" (pill WebView2, nunca rouba foco)
+        self._overlay = WebOverlay(position=self._settings.indicator_position)
 
         # Live audio level -> overlay waveform (called from recorder thread)
         self._recorder.set_level_callback(self._overlay.set_audio_level)
@@ -79,7 +80,6 @@ class DitadoApp:
             on_usage=self._show_usage,
             on_dashboard=self._show_home,
         )
-        self._home_window: Optional[HomeWindow] = None
 
         # Hotkey listener
         self._hotkey = HotkeyListener(
@@ -87,9 +87,6 @@ class DitadoApp:
             on_press=self._on_hotkey_press,
             on_release=self._on_hotkey_release,
         )
-
-        # Tkinter root for settings window
-        self._root: Optional[ctk.CTk] = None
 
         # Serializes text injection so two finished dictations can't interleave
         self._typing_lock = threading.Lock()
@@ -109,6 +106,16 @@ class DitadoApp:
             on_audio_ready=self._start_processing_job,
             notify=self._tray.show_notification,
         )
+
+        # Dashboard web (WebView2) — a janela em si é criada em run()
+        self._dashboard = WebDashboard(
+            settings=self._settings,
+            history=self._history,
+            on_save=self._on_settings_saved,
+            get_enabled=lambda: self._enabled,
+        )
+        # Estado do pipeline em tempo real no dashboard (dot REC, status)
+        self._controller.on_state = self._dashboard.notify_state
 
         # Initialize API clients if configured
         self._init_api_clients()
@@ -158,25 +165,12 @@ class DitadoApp:
         print("Ditado is running. Hold your hotkey to dictate.")
         print(f"Current hotkey: {self._settings.hotkey}")
 
-        # Create root window for settings
-        self._root = ctk.CTk()
-        self._root.title("Ditado")
-        self._root.geometry("1x1+0+0")  # Tiny window
-        self._root.withdraw()  # Hide the main window
-
-        # Set window icon for taskbar (300ms delay to override CustomTkinter's default at 200ms)
+        # Dashboard web (WebView2). webview.start() bloqueia até a janela ser
+        # destruída no stop(); fechar a janela apenas a esconde (fica no tray).
+        self._dashboard.create()
+        self._overlay.create()
         try:
-            icon_path = get_asset_path("icon.ico")
-            self._root.after(300, lambda: self._root.iconbitmap(icon_path))
-        except Exception:
-            pass
-
-        # Always show home page on startup (like Wispr Flow)
-        self._root.after(100, self._show_home)
-
-        # Run the main loop
-        try:
-            self._root.mainloop()
+            webview.start()
         except KeyboardInterrupt:
             pass
         finally:
@@ -221,23 +215,11 @@ class DitadoApp:
         except Exception as e:
             logger.debug(f"Error cleaning up muter: {e}")
 
-        # Close home window if open
-        if self._home_window:
-            try:
-                self._home_window.close()
-            except Exception as e:
-                logger.debug(f"Error closing home window: {e}")
-            self._home_window = None
-
-        # Destroy Tkinter root window
-        if self._root:
-            try:
-                # Schedule destroy on main thread
-                self._root.quit()
-                self._root.destroy()
-            except Exception as e:
-                logger.debug(f"Error destroying root window: {e}")
-            self._root = None
+        # Destroy the dashboard window (unblocks webview.start on main thread)
+        try:
+            self._dashboard.destroy()
+        except Exception as e:
+            logger.debug(f"Error destroying dashboard: {e}")
 
         logger.info("Ditado shutdown complete")
 
@@ -261,6 +243,9 @@ class DitadoApp:
         # Stops and discards a live recording so the mic is never left open
         self._controller.set_enabled(enabled)
 
+        # Reflect the new state on the dashboard
+        self._dashboard.notify_enabled(enabled)
+
         if enabled:
             logger.info("Dictation enabled")
             print("Ditado: Enabled")
@@ -269,27 +254,8 @@ class DitadoApp:
             print("Ditado: Disabled")
 
     def _show_home(self) -> None:
-        """Show the home/dashboard window."""
-        if self._home_window is None:
-            self._home_window = HomeWindow(
-                settings=self._settings,
-                history=self._history,
-                on_save=self._on_settings_saved,
-                on_minimize=self._on_home_minimized,
-                on_close=self._on_home_closed,
-            )
-
-        # Need to show in main thread
-        if self._root:
-            self._root.after(0, lambda: self._home_window.show(self._root))
-
-    def _on_home_minimized(self) -> None:
-        """Handle home window being minimized to tray."""
-        logger.debug("Home window minimized to tray")
-
-    def _on_home_closed(self) -> None:
-        """Handle home window being closed."""
-        logger.debug("Home window closed")
+        """Show the dashboard window (thread-safe; called from the tray)."""
+        self._dashboard.show()
 
     def _on_settings_saved(self, settings: Settings) -> None:
         """Handle settings being saved."""
@@ -310,21 +276,12 @@ class DitadoApp:
         # Reinitialize API clients
         self._init_api_clients()
 
-        # Refresh home window if open
-        if self._home_window and self._root:
-            self._root.after(0, self._home_window.refresh)
-
         logger.info(f"Settings saved. Hotkey: {settings.hotkey}")
         print(f"Settings saved. Hotkey: {settings.hotkey}")
 
     def _exit(self) -> None:
-        """Exit the application - schedule on main thread."""
-        if self._root:
-            # Schedule stop on main Tkinter thread to avoid threading issues
-            # (this is called from pystray's thread)
-            self._root.after(0, self.stop)
-        else:
-            self.stop()
+        """Exit the application (called from the tray thread)."""
+        self.stop()
 
     def _show_usage(self) -> None:
         """Show usage statistics notification."""
@@ -377,6 +334,8 @@ class DitadoApp:
             logger.exception(f"Unexpected error while processing dictation: {e}")
             try:
                 self._tray.show_notification("Ditado Error", f"Unexpected error: {str(e)[:80]}")
+                self._controller.job_set_state("error")
+                time.sleep(1.6)
             except Exception:
                 pass
         finally:
@@ -443,6 +402,10 @@ class DitadoApp:
         if not text:
             if last_error:
                 self._tray.show_notification("Ditado Error", str(last_error)[:100])
+                # Brief error glyph on the overlay so failure is visible
+                # in-product, not only as an easy-to-miss OS balloon
+                self._controller.job_set_state("error")
+                time.sleep(1.6)
             else:
                 logger.debug("No speech detected")
                 print("No speech detected.")
@@ -540,9 +503,8 @@ class DitadoApp:
         )
         self._history.add_entry(entry)
 
-        # Refresh home window if open (on main thread)
-        if self._home_window and self._root:
-            self._root.after(0, self._home_window.refresh)
+        # Atualiza o histórico no dashboard web
+        self._dashboard.notify_history_changed()
 
         logger.info(f"Dictation complete ({minutes:.2f} min)")
         print(f"Done. ({minutes:.2f} min)")
@@ -576,13 +538,8 @@ class DitadoApp:
         """Handle detected correction from user edit."""
         logger.debug(f"Correction detected: '{correction.original}' -> '{correction.corrected}'")
 
-        # Show popup on main thread
-        if self._root:
-            self._root.after(0, lambda: self._correction_popup.show(
-                correction.original,
-                correction.corrected,
-                self._root
-            ))
+        # O popup é auto-hospedado (thread Tk próprio) — chamada direta
+        self._correction_popup.show(correction.original, correction.corrected)
 
     def _on_correction_accepted(self, wrong: str, correct: str) -> None:
         """Handle user accepting a correction."""

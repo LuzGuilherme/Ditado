@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Ditado</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="chrome">
+
+  <!-- barra de título custom -->
+  <div id="titlebar">
+    <div id="brand">
+      <span class="dot" id="branddot"></span>
+      <span class="name">DITADO</span>
+    </div>
+    <div id="drag" class="pywebview-drag-region"></div>
+    <button class="winbtn" id="btn-min" title="Minimizar">–</button>
+    <button class="winbtn" id="btn-close" title="Fechar para o tabuleiro">×</button>
+  </div>
+
+  <div id="body">
+
+    <!-- rail de navegação -->
+    <nav id="rail">
+      <button class="nav active" data-tab="deck" title="Painel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="7.5" cy="11" r="3.2"/><circle cx="16.5" cy="11" r="3.2"/>
+          <path d="M7.5 17.5h9"/>
+        </svg>
+      </button>
+      <button class="nav" data-tab="defs" title="Definições">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M6 4v6m0 4v6M12 4v10m0 4v2M18 4v2m0 4v10"/>
+          <circle cx="6" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="18" cy="8" r="1.8"/>
+        </svg>
+      </button>
+      <button class="nav" data-tab="api" title="Ligação API">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="8.5" cy="8.5" r="4.2"/>
+          <path d="M11.5 11.5L20 20m-3.5-1.5L20 15m-5 1.5l2 2"/>
+        </svg>
+      </button>
+      <button class="nav" data-tab="counter" title="Contador">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M5 19V11M10 19V5M15 19v-8M20 19v-4"/>
+        </svg>
+      </button>
+      <div class="spacer"></div>
+      <span class="ver" id="ver"></span>
+    </nav>
+
+    <!-- palco -->
+    <main id="stage">
+
+      <!-- PAINEL -->
+      <section class="tab on" id="tab-deck">
+        <div id="topline" class="rise">
+          <span class="caps" id="dateline"></span>
+          <div id="streak" hidden>
+            <span class="caps">Série</span>
+            <span class="cells" id="streakcells"></span>
+            <span class="n" id="streakn"></span>
+          </div>
+        </div>
+
+        <h1 id="hello" class="rise"></h1>
+
+        <div id="deck" class="rise">
+          <div id="transport">
+            <span id="recdot"></span>
+            <span class="caps bright" id="status"></span>
+            <span class="gap"></span>
+            <span id="hotkeys"></span>
+          </div>
+          <p id="deckline"></p>
+          <div id="vu"></div>
+          <div id="deckbtns">
+            <button class="btn solid" id="btn-hotkey">Alterar tecla</button>
+            <button class="btn ghost" id="btn-defs">Abrir definições</button>
+          </div>
+        </div>
+
+        <div class="rise">
+          <div class="rulerline"></div>
+          <div class="sechead">
+            <span class="caps bright">Últimos takes</span>
+            <button class="linkish" id="btn-clear">Limpar histórico</button>
+          </div>
+          <div id="takes"></div>
+          <div id="empty" hidden>
+            <p class="big">Ainda não há takes.</p>
+            <span class="caps" id="emptyhint"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- DEFINIÇÕES -->
+      <section class="tab" id="tab-defs">
+        <div class="pagehead rise">
+          <span class="caps">Definições</span>
+          <h2 class="pagetitle">A tua máquina, afinada.</h2>
+        </div>
+        <div id="defs-body" class="rise"></div>
+        <div class="savebar rise">
+          <button class="btn solid" id="btn-save-defs">Guardar alterações</button>
+        </div>
+      </section>
+
+      <!-- API -->
+      <section class="tab" id="tab-api">
+        <div class="pagehead rise">
+          <span class="caps">Ligação</span>
+          <h2 class="pagetitle">OpenAI, a transcrever por ti.</h2>
+        </div>
+        <div id="api-body" class="rise"></div>
+        <div class="savebar rise">
+          <button class="btn solid" id="btn-save-api">Guardar alterações</button>
+        </div>
+      </section>
+
+      <!-- CONTADOR -->
+      <section class="tab" id="tab-counter">
+        <div class="pagehead rise">
+          <span class="caps">Contador</span>
+          <h2 class="pagetitle">O que já ditaste.</h2>
+        </div>
+        <div id="counterwrap" class="rise"></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

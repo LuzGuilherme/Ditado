@@ -36,17 +36,19 @@ Hotkey Press → Audio Recording → Whisper API → GPT Enhancement → Text In
 - `src/transcription/enhancer.py` - Cleans transcribed text via GPT (removes filler words, fixes grammar)
 - `src/input/hotkey.py` - Global hotkey listener using pynput (push-to-talk)
 - `src/input/typer.py` - Injects text at cursor position via pyautogui
-- `src/ui/overlay.py` - Floating recording indicator (Tkinter, runs in separate thread)
+- `src/ui/web/` - "Fita" front-end (HTML/CSS/JS rendered by WebView2): `index.html` dashboard, `overlay.html` dictation pill, bundled variable fonts
+- `src/ui/webhost.py` - Dashboard window + JS bridge (pywebview; `_Api` methods run on worker threads)
+- `src/ui/weboverlay.py` - Floating dictation pill (WebView2 window; color-key transparency, `WS_EX_NOACTIVATE` so it never steals focus from the dictation target)
 - `src/ui/tray.py` - System tray icon with menu (pystray)
-- `src/ui/home.py` - Unified dashboard incl. settings tabs (CustomTkinter)
-- `src/ui/theme.py` - "Soft Warmth" design tokens (single source of truth for colors)
+- `src/ui/correction_popup.py` - Vocabulary-correction popup (self-hosted Tk thread; tokens from `src/ui/theme.py`)
 - `src/config/settings.py` - Persistent settings stored in `~/.ditado/config.json`
 
 **Threading model:**
-- Main thread: Tkinter event loop (hidden root window)
+- Main thread: pywebview/WebView2 loop (`webview.start()`); closing the dashboard only hides it (the app lives in the tray)
 - Hotkey listener: pynput hook thread — callbacks ONLY enqueue events to the recording controller (never do blocking work in the hook)
-- Recording controller: dedicated worker thread; sole owner of recording state (mute, recorder start/stop, auto-stop timer, overlay show/hide)
-- Overlay: Separate thread with its own Tkinter instance
+- Recording controller: dedicated worker thread; sole owner of recording state (mute, recorder start/stop, auto-stop timer, overlay show/hide); pushes live pipeline state to the dashboard via `on_state`
+- Overlay pill: WebView2 window driven via `evaluate_js`; a small pusher thread streams mic levels at ~15 fps while recording
+- Correction popup: self-hosted Tk thread with a command queue
 - System tray: Separate thread via pystray
 - Audio processing: Spawned per-transcription; reports state back to the controller via `job_set_state`/`job_finished`
 

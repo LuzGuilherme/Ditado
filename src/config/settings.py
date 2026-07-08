@@ -57,6 +57,7 @@ class Settings:
     auto_stop_recording: bool = True  # Auto-stop when max reached
     mute_system_audio: bool = True  # Mute speakers during recording
     auto_start_on_boot: bool = False  # Start Ditado when Windows boots
+    onboarding_dismissed: bool = False  # First-run card skipped by the user
 
     # API configuration (api_key stored securely via keyring)
     _api_key_cached: str = field(default="", repr=False)
@@ -217,6 +218,7 @@ class Settings:
                 "gpt_model": self.gpt_model,
                 "enhance_text": self.enhance_text,
                 "sound_feedback": self.sound_feedback,
+                "onboarding_dismissed": self.onboarding_dismissed,
                 "user_first_name": self.user_first_name,
                 "stats": asdict(self.stats),
             }

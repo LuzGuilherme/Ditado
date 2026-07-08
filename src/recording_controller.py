@@ -55,6 +55,10 @@ class RecordingController:
         self._events: "queue.Queue[tuple]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
 
+        # Observador opcional do estado do pipeline (ex.: dashboard web).
+        # Recebe: recording | transcribing | enhancing | typing | error | idle
+        self.on_state: Optional[Callable[[str], None]] = None
+
         # State below is owned exclusively by the worker thread.
         self._enabled = True
         self._recording = False
@@ -166,6 +170,7 @@ class RecordingController:
         logger.debug("Recording started")
         self._overlay.show()
         self._overlay.set_state("recording")
+        self._emit("recording")
 
         if settings.auto_stop_recording and settings.max_recording_seconds > 0:
             self._auto_stop_timer = threading.Timer(
@@ -219,6 +224,7 @@ class RecordingController:
         self._jobs += 1
         self._last_job_state = "transcribing"
         self._overlay.set_state("transcribing")
+        self._emit("transcribing")
         try:
             self._on_audio_ready(audio_data, duration, context)
         except Exception as e:
@@ -237,6 +243,7 @@ class RecordingController:
         # A live recording owns the overlay; job states show only when idle.
         if not self._recording:
             self._overlay.set_state(state)
+            self._emit(state)
 
     def _handle_job_done(self) -> None:
         self._jobs = max(0, self._jobs - 1)
@@ -245,10 +252,23 @@ class RecordingController:
     def _refresh_overlay(self) -> None:
         if self._recording:
             self._overlay.set_state("recording")
+            self._emit("recording")
         elif self._jobs > 0:
             self._overlay.set_state(self._last_job_state)
+            self._emit(self._last_job_state)
         else:
             self._overlay.hide()
+            self._emit("idle")
+
+    def _emit(self, state: str) -> None:
+        """Notify the optional state observer; never let it break the machine."""
+        cb = self.on_state
+        if cb is None:
+            return
+        try:
+            cb(state)
+        except Exception as e:
+            logger.debug(f"State observer failed: {e}")
 
     def _handle_shutdown(self) -> None:
         if self._auto_stop_timer is not None:

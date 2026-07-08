@@ -9,6 +9,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets', 'assets'),
+        ('src/ui/web', 'src/ui/web'),
     ],
     hiddenimports=[
         'pynput.keyboard._win32',
@@ -16,7 +17,11 @@ a = Analysis(
         'sounddevice',
         'numpy',
         'PIL',
-        'customtkinter',
+        # pywebview (WebView2 via WinForms/pythonnet)
+        'webview.platforms.winforms',
+        'webview.platforms.edgechromium',
+        'clr_loader',
+        'pythonnet',
     ],
     hookspath=[],
     hooksconfig={},
